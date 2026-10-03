@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awrbc-save-editor"
+version = "0.1.0rc3"
+description = "Save-data tools for Advance Wars 1+2: Re-Boot Camp"
+requires-python = ">=3.9"
+dependencies = []
+
+# The tool stays dependency-free. Only the desktop app needs anything, and
+# only someone running it installs it.
+[project.optional-dependencies]
+desktop = ["pywebview>=5.0"]
+# Reading the committed sprite sheet's pixels, which tests/test_sprite_pack.py
+# does and nothing shipped does. Without it those tests skip - which is how
+# they managed to never run on CI at all.
+dev = ["pillow"]
+# Building the desktop zip (tools/build_desktop.py). Needs the desktop extra
+# too, since it bundles what that installs.
+package = ["pyinstaller>=6.0", "pywebview>=5.0"]
+
+[project.scripts]
+awrbc = "awrbc.cli.__main__:main"
+awrbc-desktop = "awrbc.desktop.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["awrbc*"]

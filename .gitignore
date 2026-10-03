@@ -1,0 +1,39 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Real save data must never be committed: it carries creator names and
+# game-format data. Fixtures are generated. See docs/decisions.md #12.
+/fixtures/real/
+/local/
+/scratch/
+*.sav
+*.savedata
+backup-*/
+
+# .NET build output for tools/nrbfcheck
+[Bb]in/
+[Oo]bj/
+
+.env
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local map fixtures for developing the viewer; these are personal save data.
+web/samples/
+
+# The sprite pack is committed (decision #56). The builders that produced it
+# are not: they read a checkout of somebody else's project and are a record of
+# how the pack was made, not something this repository can run.
+web/sprites/build_*.py
+# Their download cache, which belongs to the builders rather than the pack.
+web/sprites/cache/

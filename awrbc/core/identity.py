@@ -1,0 +1,46 @@
+"""Stable map identity.
+
+The id is a content hash. It identifies a *file*: the archive dedupes on it, the
+catalog records it, and it is the join key the future ratings database will use.
+So it has to stay the same for the same map forever — including after the game
+has opened and re-saved it.
+
+It is not the archive path. Which map a file belongs to is its folder, and which
+revision is its filename (decisions #8 and #43). The hash says
+which exact bytes, which is a different question and stays a different field.
+
+That is why the hashed subset is narrower than the file:
+
+* **Volatile editor state** (``LastCursorPosition``, ``IsNew``, ...) changes just
+  from opening a map in the Design Room. Never stored, never hashed.
+* **name and author** are excluded so renaming a map does not create a new one.
+* **flags** are excluded because they are suspected autotile/sprite variants the
+  game may recompute. Structure membership lives in bits 29/30, but the same
+  information is already carried by terrain type plus cell offsets, so dropping
+  flags from the hash loses nothing and protects against churn.
+"""
+import hashlib
+import json
+
+#: The hashed subset this build uses. Nothing reads it, deliberately: it is not
+#: mixed into the digest, because doing that would change every existing id the
+#: moment it was bumped - including ids already published in the archive. It is
+#: a marker for a human deciding whether two archives are comparable, and if the
+#: subset ever does change, the migration is a conversation, not a constant.
+HASH_VERSION = 1
+
+HASHED_FIELDS = ("size", "fog", "waterColor", "terrain", "cells", "units")
+
+
+def canonical(doc: dict) -> str:
+    """Deterministic JSON over the content subset only."""
+    subset = {k: doc[k] for k in HASHED_FIELDS if k in doc}
+    for key in ("cells", "units"):
+        if key in subset:
+            subset[key] = sorted(subset[key], key=lambda c: (c["y"], c["x"]))
+    return json.dumps(subset, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False)
+
+
+def content_hash(doc: dict, length: int = 16) -> str:
+    return hashlib.sha256(canonical(doc).encode("utf-8")).hexdigest()[:length]

@@ -1,0 +1,81 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Windows is what ships first, but the suite runs on all three from the
+    # start. The point is not that macOS and Linux are supported yet - they are
+    # not packaged - it is that the day they stop working, this says so. Finding
+    # two years of drift at once is what makes "support it later" expensive.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        python: ['3.9', '3.13']
+        exclude:
+          # 3.9 on one platform is enough to hold the floor in requires-python.
+          - os: macos-latest
+            python: '3.9'
+          - os: ubuntu-latest
+            python: '3.9'
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # `.[dev]` rather than `.` so the sprite-pack checks actually run. They
+      # need Pillow to read the committed sheet, and a plain install does not
+      # have it - so they skipped on every leg, silently, and `OK (skipped=N)`
+      # looked like a pass. The shipped tool still has no dependencies.
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # No save file and no game: the suite builds its own documents from the
+      # type table, which is what lets it run on a clean runner at all.
+      # Output is captured and the failing part re-emitted as a workflow
+      # annotation. Reading a full job log needs a token; an annotation does
+      # not, so a failure is legible from the API and from a phone.
+      - name: Run the suite
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s . -t . -v 2>&1 | tee suite.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=Python suite failed::$(grep -E '^(FAIL|ERROR):' suite.log | head -5 | paste -sd' ' -)"
+            grep -B2 -A15 -E '^(FAIL|ERROR):' suite.log | head -60
+          fi
+          exit $status
+
+      # The page's modules are plain ES modules with no DOM (#48), so node's
+      # built-in runner covers them with nothing installed.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # `shell: bash` and an unquoted glob on purpose. Node only learned to
+      # expand a glob after --test itself in v21, and the Windows runner's
+      # default shell is PowerShell, which does not expand globs for native
+      # commands at all. Letting bash do it works on every runner and does not
+      # depend on which node is installed.
+      - name: Run the page's tests
+        shell: bash
+        run: node --test web/test/*.test.mjs
+
+
+      - name: Check the CLI starts
+        run: |
+          python -m awrbc --help
+          python -m awrbc doctor || true   # no save on a runner; must not crash
