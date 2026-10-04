@@ -9,10 +9,19 @@
 // Python side already turns its exceptions into data - a rejected promise
 // across the bridge carries nothing a person could act on.
 
-/** Is a save-capable host underneath us? */
+//: A method that must be there for the bridge to be any use. Checked by
+//: name rather than by the object merely existing, because pywebview creates
+//: `window.pywebview.api` first and attaches the methods to it a moment
+//: later - so an empty object answers "ready" and the first call fails with
+//: "api(...)[name] is not a function". Intermittent by nature: it depends on
+//: whether the page got there first.
+const A_METHOD = 'find_saves';
+
+/** Is a save-capable host underneath us, with its methods attached? */
 export function available() {
   return typeof window !== 'undefined' &&
-         !!(window.pywebview && window.pywebview.api);
+         !!(window.pywebview && window.pywebview.api) &&
+         typeof window.pywebview.api[A_METHOD] === 'function';
 }
 
 /**
@@ -41,7 +50,17 @@ function api() {
 /** Normalise whatever came back into something with `ok` on it. */
 async function call(name, ...args) {
   try {
-    const got = await api()[name](...args);
+    const fn = api()[name];
+    if (typeof fn !== 'function') {
+      // Name what is there. A bridge missing one method is a different
+      // problem from a bridge that has not finished being built, and the
+      // bare TypeError looked identical for both.
+      const have = Object.keys(window.pywebview.api || {}).sort().join(', ');
+      return { ok: false,
+               error: `the desktop bridge has no ${name}. It offers: ` +
+                      (have || '(nothing yet)') };
+    }
+    const got = await fn(...args);
     if (got && typeof got === 'object' && 'ok' in got) return got;
     return { ok: false, error: `the ${name} call answered unexpectedly` };
   } catch (e) {

@@ -16,9 +16,15 @@ import {
   removeMap,
 } from '../saves.js';
 
-/** Stand in for what pywebview injects. */
+/** Stand in for what pywebview injects, once it has finished. */
 function withBridge(api) {
-  globalThis.window = { pywebview: { api } };
+  globalThis.window = { pywebview: { api: { find_saves: async () => ({}),
+                                            ...api } } };
+}
+
+/** The object pywebview creates before it attaches the methods. */
+function withHalfBuiltBridge() {
+  globalThis.window = { pywebview: { api: {} } };
 }
 
 afterEach(() => { delete globalThis.window; });
@@ -36,6 +42,30 @@ describe('the boundary', () => {
   it('reports save access when the bridge is there', () => {
     withBridge({});
     assert.equal(available(), true);
+  });
+
+  it('does not call a bridge that has no methods on it yet', () => {
+    // pywebview creates window.pywebview.api first and attaches the methods
+    // to it a moment later. Treating the bare object as ready made the first
+    // call fail with "api(...)[name] is not a function", intermittently,
+    // depending on whether the page got there first.
+    withHalfBuiltBridge();
+    assert.equal(available(), false);
+  });
+
+  it('waits for the methods, not just the object', async () => {
+    withHalfBuiltBridge();
+    setTimeout(() => { globalThis.window.pywebview.api.find_saves =
+      async () => ({ ok: true }); }, 60);
+    assert.equal(await ready(1000, 20), true);
+  });
+
+  it('says what the bridge does offer when a method is missing', async () => {
+    withBridge({ open_save: async () => ({ ok: true }) });
+    const got = await removeMap('C:/x/maps', 0);
+    assert.equal(got.ok, false);
+    assert.match(got.error, /no remove_map/);
+    assert.match(got.error, /find_saves/, 'it should name what is there');
   });
 
   it('does not throw in a browser, it answers', async () => {
