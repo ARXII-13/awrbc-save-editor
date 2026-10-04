@@ -39,7 +39,18 @@ public class AwrbcWin {
 
 if (-not (Test-Path $Exe)) { Write-Output "no such file: $Exe"; exit 2 }
 
-$proc = Start-Process -FilePath $Exe -PassThru
+$proc = Start-Process -FilePath $Exe -PassThru -ErrorAction SilentlyContinue
+if (-not $proc) {
+  # Almost always SmartScreen. An unsigned executable carrying a zone mark
+  # gets "Windows protected your PC" before a line of our code runs, and a
+  # dismissed prompt arrives here as a cancelled Start-Process - which the
+  # first version of this reported as two null-reference errors.
+  Write-Output "exe      : $Exe"
+  Write-Output 'verdict  : NOT STARTED - Windows would not launch it.'
+  Write-Output '           Unsigned and marked as downloaded means SmartScreen'
+  Write-Output '           asks first. This is what a downloader sees too.'
+  exit 3
+}
 Start-Sleep -Seconds $WaitSeconds
 
 $windows = New-Object System.Collections.ArrayList
@@ -65,15 +76,24 @@ foreach ($w in $windows) { Write-Output "window   : $($w.Class)" }
 if ($dialogs.Count -gt 0) {
   Write-Output 'verdict  : FAILED - it is showing an error dialog'
   Write-Output ''
+  # Collected, not written from inside the callback. PowerShell throws away
+  # pipeline output from a delegate that native code invokes, so the version
+  # that said Write-Output here printed the verdict and then nothing at all -
+  # on the one run where the message was the whole point.
+  $said = New-Object System.Collections.ArrayList
   foreach ($d in $dialogs) {
     $readKid = [AwrbcWin+Proc]{
       param($h, $l)
       $t = New-Object System.Text.StringBuilder 8192
       [void][AwrbcWin]::GetWindowTextW($h, $t, 8192)
-      if ($t.Length -gt 20) { Write-Output $t.ToString() }
+      if ($t.Length -gt 20) { [void]$said.Add($t.ToString()) }
       return $true
     }
     [void][AwrbcWin]::EnumChildWindows($d.Handle, $readKid, [IntPtr]::Zero)
+  }
+  foreach ($line in $said) { Write-Output $line }
+  if ($said.Count -eq 0) {
+    Write-Output '           (the dialog had no readable text - unexpected)'
   }
   $code = 1
 } elseif ($windows.Count -gt 0) {
