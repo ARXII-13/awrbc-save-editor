@@ -21,13 +21,13 @@
 
 <header>
   <h1>Advance Wars 1+2 — save maps</h1>
-  <span class="sub" id="packlabel"></span>
+  <span class="sub warnlabel" id="packlabel" hidden></span>
 </header>
 
 <main>
   <p class="sub lead">
-    Maps in your Ryujinx save. A backup is taken before every write, and
-    writing is refused while the game is running.
+    Maps in your save. A backup is taken before every write, and writing is
+    refused while the game is running.
   </p>
   <div class="toolbar">
     <label class="btn primary">Import a map file…<input type="file" hidden></label>
@@ -85,7 +85,15 @@ const MAPS = [
 ];
 
 globalThis.window.pywebview = { api: {
-  find_saves: async () => ({ ok: true, saves: [{ path: "C:/fake/maps" }] }),
+  // Two, and from different emulators, so the switcher is visible here.
+  // A harness that only ever shows the simple case hides the states worth
+  // looking at.
+  find_saves: async () => ({ ok: true, saves: [
+    { path: "C:/fake/maps", label: "Ryujinx profile 0a1b2c3d",
+      source: "ryujinx" },
+    { path: "D:/fake/sudachi/maps", label: "Sudachi profile 9f8e7d6c",
+      source: "yuzu" },
+  ] }),
   open_save: async () => ({ ok: true, maps: MAPS }),
   remove_map: async () => ({ ok: true }),
   snapshots: async () => ({ ok: true, snapshots: [] }),
@@ -93,8 +101,12 @@ globalThis.window.pywebview = { api: {
 } };
 
 await loadPack();
-document.getElementById("packlabel").textContent =
-  packLabel() ? "sprites: " + packLabel() : "no sprite pack";
+// Same rule as the real page: silent unless there is nothing to draw with.
+const packNote = document.getElementById("packlabel");
+if (!packLabel()) {
+  packNote.textContent = "no sprite pack - terrain draws as letters";
+  packNote.hidden = false;
+}
 
 attachIfDesktop({
   panel: document.getElementById("savepanel"),

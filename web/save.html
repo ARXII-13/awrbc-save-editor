@@ -25,13 +25,15 @@
 
 <header>
   <h1>Advance Wars 1+2 — save maps</h1>
-  <span class="sub" id="packlabel"></span>
+  <!-- Only ever says anything when something is wrong. Which sprite pack is
+       loaded is not news to anybody; terrain drawing as letters is. -->
+  <span class="sub warnlabel" id="packlabel" hidden></span>
 </header>
 
 <main>
   <p class="sub lead">
-    Maps in your Ryujinx save. A backup is taken before every write, and
-    writing is refused while the game is running.
+    Maps in your save. A backup is taken before every write, and writing is
+    refused while the game is running.
   </p>
 
   <div class="toolbar">
@@ -53,9 +55,13 @@ import { attachIfDesktop } from "./save-ui.js";
 const PREVIEW_TILE = 7;
 
 await loadPack();
-const name = packLabel();
-document.getElementById("packlabel").textContent =
-  name ? "sprites: " + name : "no sprite pack - terrain draws as letters";
+// Said only when it matters: without a pack, terrain draws as letters on
+// flat colour, and somebody looking at that deserves to know why.
+const packNote = document.getElementById("packlabel");
+if (!packLabel()) {
+  packNote.textContent = "no sprite pack - terrain draws as letters";
+  packNote.hidden = false;
+}
 
 /**
  * The map the person picked, as a document.

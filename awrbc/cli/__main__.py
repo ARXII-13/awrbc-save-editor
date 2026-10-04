@@ -12,6 +12,7 @@ import subprocess
 import sys
 
 from ..core import (backup, identify, locate, savefile, schema, validate)
+from ..core.locate import EMULATOR_PROCESSES
 from ..core.errors import (AwrbcError, MapNotFound, SaveInUse,
                            SaveNotFound, ValidationFailed)
 
@@ -23,11 +24,11 @@ def _resolve(args):
     """Pick the save to operate on, or raise SaveNotFound with a useful message."""
     candidates = locate.find_saves(args.save_dir)
     if not candidates:
-        where = args.save_dir or "the default Ryujinx locations"
+        where = args.save_dir or "the usual emulator locations"
         raise SaveNotFound(
             "no save data found in %s.\n"
-            "Pass --save-dir pointing at a Ryujinx data folder, a JKSV dump, or "
-            "a maps file directly." % where)
+            "Pass --save-dir pointing at an emulator data folder, a save "
+            "copied off a console, or a maps file directly." % where)
     chosen = locate.select(candidates, args.profile)
     if chosen is None:
         have = ", ".join(str(c.profile) for c in candidates)
@@ -39,7 +40,13 @@ def _game_running():
     """Is the title running? It flushes its own copy over external writes.
 
     Only a loaded game holds the save; the emulator sitting open with no title
-    is fine, so this must not refuse merely because Ryujinx is on screen.
+    is fine, so this must not refuse merely because an emulator is on screen.
+
+    Every emulator anybody might be running, not just the one this was
+    developed against. It looked for "ryujinx" alone until the save locator
+    learned about the others, which meant the guard quietly did nothing for
+    everyone else - and doing nothing here means a write going in underneath
+    a running game, which is the one failure no backup makes pleasant.
 
     Asks the platform's own process list. This used to shell out to `tasklist`
     unconditionally, which meant that on macOS and Linux the command did not
@@ -62,24 +69,26 @@ def _game_running():
                              timeout=10).stdout.lower()
     except Exception:                               # noqa: BLE001
         return False
-    return "ryujinx" in out
+    return any(name in out for name in EMULATOR_PROCESSES)
 
 
 def cmd_doctor(args, out):
     candidates = locate.find_saves(args.save_dir)
     result = {"candidates": [], "ok": False}
     if not candidates:
-        where = args.save_dir or "default Ryujinx locations"
+        where = args.save_dir or "the usual emulator locations"
         if args.json:
             json.dump(result, out, indent=2)
             out.write("\n")
         else:
             out.write("No save data found in %s.\n\n" % where)
             out.write("Looked in:\n")
-            for r in locate.ryujinx_roots():
-                out.write("  %s\n" % r)
-            out.write("\nUse --save-dir to point at a Ryujinx folder, a JKSV "
-                      "dump, or a maps file.\n")
+            for name, root, _layout in locate.emulator_roots():
+                out.write("  %-10s %s\n" % (name, root))
+            if not locate.emulator_roots():
+                out.write("  (no emulator data folder found)\n")
+            out.write("\nUse --save-dir to point at an emulator folder, a "
+                      "save copied off a console, or a maps file.\n")
         return SaveNotFound.exit_code
 
     for c in candidates:
@@ -422,7 +431,7 @@ def _common(suppress):
     c = argparse.ArgumentParser(add_help=False)
     default = argparse.SUPPRESS if suppress else None
     c.add_argument("--save-dir", default=default,
-                   help="Ryujinx data folder, JKSV dump, or maps file")
+                   help="emulator data folder, console save dump, or maps file")
     c.add_argument("--profile", default=default,
                    help="profile id when a save has several")
     c.add_argument("--json", action="store_true",

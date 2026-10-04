@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 
+from ..core import locate
 from .api import SaveApi
 
 def web_dir():
@@ -60,7 +61,7 @@ def game_running():
                              timeout=10).stdout.lower()
     except Exception:                                   # noqa: BLE001
         return False
-    return "ryujinx" in out
+    return any(name in out for name in locate.EMULATOR_PROCESSES)
 
 
 #: The save editor's own page, not the map editor's index.html. That page

@@ -1,0 +1,225 @@
+"""Finding a save, whatever put it there.
+
+The tool is not an emulator's accessory. A save can come from Ryujinx, from
+anything in the yuzu family, or off a modded console through JKSV - and the
+one thing it must never do is only work for the emulator it was written on.
+"""
+import os
+import tempfile
+import unittest
+import unittest.mock
+
+from awrbc.core import identify, locate
+
+
+def touch(path, size=16384):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(b"\0" * size)
+    return path
+
+
+class TheTitleId(unittest.TestCase):
+    def test_both_modules_mean_the_same_game(self):
+        """locate spells it as a path component and identify as an integer.
+        Two spellings of one fact is a thing that drifts."""
+        self.assertEqual(int(locate.TITLE_ID_HEX, 16), identify.TITLE_ID)
+
+
+class TheRyujinxLayout(unittest.TestCase):
+    """The save id says nothing about which game it is, so every one is
+    looked at."""
+
+    def test_it_finds_a_save(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = touch(os.path.join(d, "bis", "user", "save", "0001",
+                                      "profileA", "SaveData", "maps"))
+            found = locate.scan_ryujinx_root(d, emulator="Ryujinx")
+            self.assertEqual([c.path for c in found], [maps])
+            self.assertEqual(found[0].profile, "profileA")
+            self.assertEqual(found[0].emulator, "Ryujinx")
+
+    def test_it_finds_every_profile(self):
+        with tempfile.TemporaryDirectory() as d:
+            for profile in ("alpha", "beta"):
+                touch(os.path.join(d, "bis", "user", "save", "0001", profile,
+                                   "SaveData", "maps"))
+            self.assertEqual(len(locate.scan_ryujinx_root(d)), 2)
+
+
+class TheYuzuLayout(unittest.TestCase):
+    """This one puts the title id in the path, so the game's save is gone to
+    directly rather than searched for."""
+
+    def save(self, root, user="user1", title=None):
+        return touch(os.path.join(root, "nand", "user", "save",
+                                  "0000000000000000", user,
+                                  title or locate.TITLE_ID_HEX, "maps"))
+
+    def test_it_finds_our_game(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = self.save(d)
+            found = locate.scan_yuzu_root(d, emulator="Sudachi")
+            self.assertEqual([c.path for c in found], [maps])
+            self.assertEqual(found[0].emulator, "Sudachi")
+            self.assertEqual(found[0].source, "yuzu")
+
+    def test_it_ignores_another_game(self):
+        """The whole point of the title id being in the path."""
+        with tempfile.TemporaryDirectory() as d:
+            self.save(d, title="0100000000010000")      # Super Mario Odyssey
+            self.assertEqual(locate.scan_yuzu_root(d), [])
+
+    def test_it_finds_our_game_beside_others(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.save(d, title="0100000000010000")
+            ours = self.save(d)
+            self.assertEqual([c.path for c in locate.scan_yuzu_root(d)], [ours])
+
+    def test_each_user_is_its_own_save(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.save(d, user="user1")
+            self.save(d, user="user2")
+            self.assertEqual(len(locate.scan_yuzu_root(d)), 2)
+
+    def test_an_empty_root_is_not_an_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(locate.scan_yuzu_root(d), [])
+
+
+class WhatItIsCalled(unittest.TestCase):
+    def test_the_emulator_is_named_when_we_know_it(self):
+        c = locate.SaveCandidate(path="x", profile="abcdef0123456789",
+                                 emulator="Ryujinx")
+        self.assertIn("Ryujinx", c.label)
+
+    def test_a_long_profile_id_is_shortened(self):
+        """It is a GUID. It exists to tell two profiles apart, and its first
+        few characters do that as well as all of it."""
+        c = locate.SaveCandidate(path="x", profile="abcdef0123456789",
+                                 emulator="yuzu")
+        self.assertIn("abcdef01", c.label)
+        self.assertNotIn("0123456789", c.label)
+
+    def test_an_unrecognised_source_still_says_something(self):
+        c = locate.SaveCandidate(path="x", source="directory")
+        self.assertEqual(c.label, "directory")
+
+
+class PointingItSomewhere(unittest.TestCase):
+    """What somebody with a console dump, or a portable install, does."""
+
+    def test_a_maps_file_directly(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = touch(os.path.join(d, "maps"))
+            self.assertEqual([c.path for c in locate.from_directory(maps)],
+                             [maps])
+
+    def test_a_jksv_dump(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = touch(os.path.join(d, "maps"))
+            self.assertEqual([c.path for c in locate.from_directory(d)], [maps])
+
+    def test_a_portable_emulator_folder_either_layout(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = touch(os.path.join(d, "nand", "user", "save", "0", "u",
+                                      locate.TITLE_ID_HEX, "maps"))
+            self.assertEqual([c.path for c in locate.from_directory(d)], [maps])
+
+    def test_a_folder_with_nothing_in_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(locate.from_directory(d), [])
+
+
+class WhichEmulatorsAreInstalled(unittest.TestCase):
+    def test_only_folders_that_exist(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "Ryujinx"))
+            os.makedirs(os.path.join(d, "sudachi"))
+            with unittest.mock.patch.object(locate, "_data_dirs",
+                                            lambda: [d]):
+                names = {n for n, _r, _l in locate.emulator_roots()}
+            self.assertEqual(names, {"Ryujinx", "Sudachi"})
+
+    def test_each_one_carries_its_layout(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "Ryujinx"))
+            os.makedirs(os.path.join(d, "yuzu"))
+            with unittest.mock.patch.object(locate, "_data_dirs",
+                                            lambda: [d]):
+                got = {n: layout for n, _r, layout in locate.emulator_roots()}
+            self.assertEqual(got, {"Ryujinx": "ryujinx", "yuzu": "yuzu"})
+
+
+class DiscoveryUsesTheRightLayoutForEach(unittest.TestCase):
+    """The wiring, not the two scanners.
+
+    Tested because a mutant that dropped the yuzu branch from find_saves and
+    scanned every root the Ryujinx way passed the whole suite: both scanners
+    had their own tests, and nothing checked that discovery called the right
+    one.
+    """
+
+    def roots(self, d):
+        os.makedirs(os.path.join(d, "Ryujinx"), exist_ok=True)
+        os.makedirs(os.path.join(d, "yuzu"), exist_ok=True)
+        ryu = touch(os.path.join(d, "Ryujinx", "bis", "user", "save", "0001",
+                                 "profileA", "SaveData", "maps"))
+        yz = touch(os.path.join(d, "yuzu", "nand", "user", "save",
+                                "0000000000000000", "user1",
+                                locate.TITLE_ID_HEX, "maps"))
+        return ryu, yz
+
+    def test_it_finds_saves_in_both(self):
+        with tempfile.TemporaryDirectory() as d:
+            ryu, yz = self.roots(d)
+            with unittest.mock.patch.object(locate, "_data_dirs", lambda: [d]):
+                found = locate.find_saves()
+            self.assertEqual({c.path for c in found}, {ryu, yz})
+
+    def test_each_is_labelled_with_its_own_emulator(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.roots(d)
+            with unittest.mock.patch.object(locate, "_data_dirs", lambda: [d]):
+                found = locate.find_saves()
+            self.assertEqual({c.emulator for c in found}, {"Ryujinx", "yuzu"})
+
+    def test_an_explicit_path_still_overrides_everything(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.roots(d)
+            elsewhere = os.path.join(d, "dump")
+            maps = touch(os.path.join(elsewhere, "maps"))
+            with unittest.mock.patch.object(locate, "_data_dirs", lambda: [d]):
+                found = locate.find_saves(elsewhere)
+            self.assertEqual([c.path for c in found], [maps])
+
+
+class KnowingTheGameIsRunning(unittest.TestCase):
+    """The guard that refuses to write while a game holds the save.
+
+    It matched "ryujinx" and nothing else, so for anybody on another emulator
+    it answered "not running" every time - a guard that was not guarding.
+    Writing underneath a loaded game is the one failure a backup does not
+    make pleasant, because the game flushes its own copy over the top.
+    """
+
+    def test_every_emulator_we_can_find_a_save_for_is_also_watched_for(self):
+        """Otherwise the tool knows where your save is and not when it is
+        in use, which is the worse half to be missing."""
+        for _name, folder, _layout in locate.EMULATORS:
+            self.assertIn(folder.lower(), locate.EMULATOR_PROCESSES)
+
+    def test_it_matches_a_process_list(self):
+        for name in locate.EMULATOR_PROCESSES:
+            listing = "\n".join(["explorer.exe", name + ".exe", "chrome.exe"])
+            self.assertTrue(
+                any(p in listing for p in locate.EMULATOR_PROCESSES),
+                "%s running should be noticed" % name)
+
+    def test_an_unrelated_process_list_matches_nothing(self):
+        listing = "\n".join(["explorer.exe", "chrome.exe", "code.exe"])
+        self.assertFalse(any(p in listing for p in locate.EMULATOR_PROCESSES))
+
+
+if __name__ == "__main__":
+    unittest.main()

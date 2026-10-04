@@ -33,6 +33,7 @@ const BIG_MAX = 32;
 export function attachSaves({ panel, poster, pickMap }) {
   let savePath = null;
   let entries = [];
+  let found = [];        // every save on this machine, not just the open one
 
   const el = (tag, props = {}, ...kids) => {
     const node = Object.assign(document.createElement(tag), props);
@@ -69,13 +70,48 @@ export function attachSaves({ panel, poster, pickMap }) {
   async function refresh() {
     const got = await saves.findSaves();
     if (!got.ok) return say(got.error, true);
-    if (!got.saves.length) {
-      return say('No Ryujinx save found on this machine.');
+    found = got.saves ?? [];
+    if (!found.length) {
+      // Deliberately not naming one emulator. A save can come from any of
+      // them, or off a modded console, and telling somebody their Ryujinx
+      // save is missing when they do not use Ryujinx is worse than saying
+      // nothing.
+      return say('No Advance Wars save found on this machine. ' +
+                 'If yours is somewhere else - a portable install, or a ' +
+                 'copy off a console - the command line can be pointed at ' +
+                 'it with --save-dir.');
     }
-    // One save is the common case; more than one means profiles, and the
-    // path's tail is the only thing that tells them apart.
-    savePath = savePath ?? got.saves[0].path;
+    savePath = savePath ?? found[0].path;
     await open(savePath);
+  }
+
+  /** The save currently open, as the locator described it. */
+  function current() {
+    return found.find((s) => s.path === savePath);
+  }
+
+  /**
+   * One button per save, when there is a choice to make.
+   *
+   * Two profiles in one emulator, or two emulators side by side, both end up
+   * here. Hidden entirely for the ordinary case of a single save, because a
+   * row of one button is a decision nobody has.
+   */
+  function switcher() {
+    if (found.length < 2) return null;
+    const row = el('div', { className: 'saveswitch' });
+    for (const save of found) {
+      const open_ = save.path === savePath;
+      const pick = el('button', {
+        className: open_ ? 'chip on' : 'chip',
+        title: save.path,
+        textContent: save.label || save.source || 'save',
+      });
+      pick.disabled = open_;
+      pick.onclick = () => { savePath = save.path; open(save.path); };
+      row.append(pick);
+    }
+    return row;
   }
 
   async function open(path) {
@@ -218,13 +254,24 @@ export function attachSaves({ panel, poster, pickMap }) {
     roll.onclick = restorePrompt;
 
     const count = entries.length;
+    const where = current();
     const head = el('div', { className: 'listhead' },
       el('h2', { textContent: count === 1 ? '1 map in this save'
                                           : `${count} maps in this save` }),
-      el('span', { className: 'sub', textContent: savePath || '' }));
+      // Whichever of the two is not already on screen. With the switcher
+      // up, the selected chip has said which save this is, so repeating it
+      // here wastes the line that could carry the path instead.
+      el('span', {
+        className: 'sub', title: savePath || '',
+        textContent: (found.length > 1
+          ? savePath
+          : where?.label || savePath) || '',
+      }));
 
+    const pickers = switcher();
     panel.replaceChildren(
       el('div', { className: 'toolbar' }, takeBackup, roll),
+      ...(pickers ? [pickers] : []),
       head,
       count
         ? el('div', { className: 'maplist' },

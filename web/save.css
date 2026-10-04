@@ -45,6 +45,10 @@ h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .01em; }
 main { padding: 20px; max-width: 720px; margin: 0 auto; }
 
 .sub { color: var(--dim); font-size: 12.5px; }
+
+/* The header only carries a note when something is wrong with it, so it
+ * should not look like a caption. */
+.warnlabel { color: var(--warn); }
 .lead { margin: 0 0 16px; }
 
 /* --- controls ---------------------------------------------------------- */
@@ -87,6 +91,31 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
   flex-wrap: wrap;
   align-items: center;
   margin-bottom: 18px;
+}
+
+/* --- choosing between saves -------------------------------------------- */
+
+/* Only ever shown when there is more than one, so it does not need to
+ * explain itself - two chips side by side are self-evident. */
+.saveswitch {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: -8px 0 18px;
+}
+
+.chip {
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--dim);
+}
+.chip.on {
+  color: var(--ink);
+  border-color: #3c5c8c;
+  background: #223047;
+  opacity: 1;              /* it is disabled, but it is the selected one */
+  cursor: default;
 }
 
 /* --- the list ---------------------------------------------------------- */

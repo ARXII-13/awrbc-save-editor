@@ -489,3 +489,85 @@ describe('looking at a map full size', () => {
     assert.equal(open(it_).length, 0);
   });
 });
+
+
+describe('choosing between saves', () => {
+  const two = {
+    find_saves: async () => ({ ok: true, saves: [
+      { path: 'C:/ryu/maps', label: 'Ryujinx profile 00000000',
+        source: 'ryujinx' },
+      { path: 'C:/yuzu/maps', label: 'Sudachi profile abcdef01',
+        source: 'yuzu' },
+    ] }),
+  };
+
+  const one = {
+    find_saves: async () => ({ ok: true, saves: [
+      { path: 'C:/ryu/maps', label: 'Ryujinx profile 00000000' }] }),
+  };
+
+  it('offers a button for each when there is a choice', async () => {
+    const p = panelOver(two);
+    await p.api.refresh();
+    const chips = byClass(p.panel, 'chip');
+    assert.equal(chips.length, 2);
+    assert.deepEqual(chips.map(text),
+                     ['Ryujinx profile 00000000', 'Sudachi profile abcdef01']);
+  });
+
+  it('offers nothing to choose when there is only one save', async () => {
+    // A row of one button is a decision nobody has.
+    const p = panelOver(one);
+    await p.api.refresh();
+    assert.equal(byClass(p.panel, 'saveswitch').length, 0);
+  });
+
+  it('marks the open one and does not offer to re-open it', async () => {
+    const p = panelOver(two);
+    await p.api.refresh();
+    const [first, second] = byClass(p.panel, 'chip');
+    assert.ok(String(first.className).includes('on'));
+    assert.equal(first.disabled, true);
+    assert.equal(second.disabled, false);
+  });
+
+  it('opens the other one when its button is pressed', async () => {
+    const opened = [];
+    const p = panelOver({
+      ...two,
+      open_save: async (path) => { opened.push(path); return { ok: true, maps: [] }; },
+    });
+    await p.api.refresh();
+    byClass(p.panel, 'chip')[1].onclick();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(opened.at(-1), 'C:/yuzu/maps');
+  });
+
+  it('names the open save above the list when there is no switcher',
+     async () => {
+    const p = panelOver(one);
+    await p.api.refresh();
+    const sub = byClass(p.panel, 'listhead')[0].children[1];
+    assert.equal(text(sub), 'Ryujinx profile 00000000');
+    assert.equal(sub.title, 'C:/ryu/maps', 'the path is still reachable');
+  });
+
+  it('shows the path there instead once the switcher says which save',
+     async () => {
+    // The selected chip already names it; repeating it wastes the line.
+    const p = panelOver(two);
+    await p.api.refresh();
+    const sub = byClass(p.panel, 'listhead')[0].children[1];
+    assert.equal(text(sub), 'C:/ryu/maps');
+  });
+
+  it('names no emulator when it finds nothing', async () => {
+    // Telling somebody their Ryujinx save is missing when they do not use
+    // Ryujinx is worse than saying nothing.
+    const p = panelOver({ find_saves: async () => ({ ok: true, saves: [] }) });
+    await p.api.refresh();
+    const said = text(byClass(p.panel, 'notice')[0]);
+    assert.match(said, /No Advance Wars save/);
+    assert.ok(!/Ryujinx|yuzu|Sudachi/i.test(said), said);
+  });
+});
