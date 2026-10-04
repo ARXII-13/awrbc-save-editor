@@ -17,7 +17,8 @@ whatever sprite pack is loaded - one renderer, as everywhere else.
 import os
 import traceback
 
-from ..core import backup, derive, locate, savefile, schema, validate
+from ..core import (backup, create, derive, locate, savefile,
+                    schema, validate)
 from ..core.errors import AwrbcError
 
 
@@ -116,13 +117,17 @@ class SaveApi:
         found = locate.describe(locate.from_directory(chosen))
         if not found:
             if locate.is_save_folder(chosen):
+                # Not a dead end any more: the file can be made. Flagged
+                # rather than made here, because writing a new file into
+                # somebody's save folder is not a thing to do unasked.
                 return {"ok": False, "kind": "NoMapsYet",
-                        "error": "%s is an Advance Wars save, but the game "
-                                 "has not made a maps file in it yet.\n\n"
-                                 "That file appears once the save holds a "
-                                 "custom map. Make one in the Design Room on "
-                                 "the console, save it, then copy the folder "
-                                 "across again." % chosen}
+                        "canCreate": True,
+                        "folder": chosen,
+                        "error": "%s is an Advance Wars save, but it has no "
+                                 "maps file - the game makes one the first "
+                                 "time the save holds a custom map.\n\n"
+                                 "This tool can make it instead, with the "
+                                 "maps you import already in it." % chosen}
             return {"ok": False, "kind": "SaveNotFound",
                     "error": "no Advance Wars save data in %s.\n\nPick the "
                              "folder holding the 'maps' file, or that file "
@@ -170,6 +175,51 @@ class SaveApi:
                 "an emulator is running. A loaded game keeps its own copy "
                 "of the save and writes it back over anything put underneath "
                 "it, so close the game and let it shut down properly first.")
+
+    @_guard
+    def create_save(self, folder, adds=None):
+        """Make a maps file in a save folder that has none.
+
+        Created with the maps already in it rather than empty, because an
+        empty document carries only the root class definitions - the ones for
+        tiles and units appear when a map is first serialised, and add_map
+        needs them to model new records on.
+        """
+        self._refuse_if_running()
+        adds = list(adds or [])
+        if not adds:
+            raise AwrbcError("a new maps file needs at least one map in it")
+
+        where = locate.maps_path_for(folder)
+        if where is None:
+            raise AwrbcError("%s is not a folder" % folder)
+        if os.path.exists(where):
+            raise AwrbcError("%s already exists" % where)
+
+        prepared = []
+        for entry in adds:
+            document = entry.get("document") if isinstance(entry, dict) else entry
+            name = entry.get("name") if isinstance(entry, dict) else None
+            m = schema.from_json(document)
+            report = validate.check(m)
+            if report.errors:
+                return {"ok": False,
+                        "error": "%s is not playable" % (
+                            name or m.name or "that map"),
+                        "kind": "ValidationFailed",
+                        "findings": [vars(f) for f in report.errors]}
+            if name:
+                m.name = name
+            prepared.append(m)
+
+        with open(where, "wb") as fh:
+            fh.write(create.build_document(prepared))
+
+        # Read back before claiming anything. A file this cannot produce
+        # correctly should fail here rather than on a console.
+        doc = savefile.read(where)
+        return {"ok": True, "path": where,
+                "created": [m.name for m in doc.maps]}
 
     @_guard
     def apply_changes(self, path, removes=None, adds=None):

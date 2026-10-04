@@ -27,3 +27,9 @@ awrbc-desktop = "awrbc.desktop.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["awrbc*"]
+
+# The format description, needed to make a maps file where the game has not
+# made one. Code without it raises on import of the table rather than at
+# install time, so it has to be declared.
+[tool.setuptools.package-data]
+"awrbc.core" = ["typetable.json"]

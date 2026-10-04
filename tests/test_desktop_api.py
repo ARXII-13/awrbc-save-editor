@@ -309,5 +309,98 @@ class ApplyingAWholeBatch(ApiCase):
         self.assertEqual(dropped["removed"], "One")
 
 
+class MakingTheMapsFile(ApiCase):
+    """A save folder with no maps file in it.
+
+    What a console save looks like when its owner has never opened the
+    Design Room: gameState and gameStateBackup, and nothing else. The tool
+    makes the file rather than sending them away to make a map by hand.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.folder = os.path.join(self.tmp, "ARX II-13", "SaveData")
+        os.makedirs(self.folder)
+        for name in ("gameState", "gameStateBackup"):
+            with open(os.path.join(self.folder, name), "wb") as fh:
+                fh.write(b"\0" * 1024)
+        self.where = os.path.join(self.folder, "maps")
+
+    def document(self, name="New"):
+        from awrbc.core import schema
+        return schema.build_document(a_map(name))
+
+    def test_it_makes_a_file_with_the_maps_in_it(self):
+        got = self.api.create_save(self.folder,
+                                   [{"document": self.document("First")},
+                                    {"document": self.document("Second")}])
+        self.assertTrue(got["ok"], got)
+        self.assertTrue(os.path.isfile(self.where))
+        self.assertEqual(got["created"], ["First", "Second"])
+
+    def test_the_file_it_makes_can_be_opened_normally(self):
+        self.api.create_save(self.folder, [{"document": self.document("One")}])
+        opened = self.api.open_save(self.where)
+        self.assertTrue(opened["ok"], opened)
+        self.assertEqual([m["name"] for m in opened["maps"]], ["One"])
+
+    def test_more_maps_can_be_added_to_it_afterwards(self):
+        """The created file is only ever the first write."""
+        self.api.create_save(self.folder, [{"document": self.document("One")}])
+        added = self.api.apply_changes(
+            self.where, [], [{"document": self.document("Two")}])
+        self.assertTrue(added["ok"], added)
+        self.assertEqual(
+            [m["name"] for m in self.api.open_save(self.where)["maps"]],
+            ["One", "Two"])
+
+    def test_it_refuses_to_make_an_empty_one(self):
+        """An empty document carries only the root class definitions, so
+        nothing could ever be added to it."""
+        got = self.api.create_save(self.folder, [])
+        self.assertFalse(got["ok"])
+        self.assertFalse(os.path.exists(self.where))
+
+    def test_it_will_not_write_over_an_existing_save(self):
+        with open(self.where, "wb") as fh:
+            fh.write(b"a real save lives here")
+        got = self.api.create_save(self.folder,
+                                   [{"document": self.document()}])
+        self.assertFalse(got["ok"])
+        with open(self.where, "rb") as fh:
+            self.assertEqual(fh.read(), b"a real save lives here")
+
+    def test_an_unplayable_map_stops_it(self):
+        bare = Map(name="Empty", cols=4, rows=4,
+                   tiles=[[Tile(type=1) for _ in range(4)] for _ in range(4)],
+                   units=[[None] * 4 for _ in range(4)])
+        from awrbc.core import schema
+        got = self.api.create_save(
+            self.folder, [{"document": schema.build_document(bare)}])
+        self.assertFalse(got["ok"])
+        self.assertEqual(got["kind"], "ValidationFailed")
+        self.assertFalse(os.path.exists(self.where),
+                         "nothing should have been written")
+
+    def test_it_refuses_while_an_emulator_is_running(self):
+        busy = SaveApi(game_running=lambda: True)
+        got = busy.create_save(self.folder, [{"document": self.document()}])
+        self.assertFalse(got["ok"])
+        self.assertFalse(os.path.exists(self.where))
+
+    def test_a_folder_that_is_not_one_is_refused(self):
+        got = self.api.create_save(os.path.join(self.tmp, "nowhere"),
+                                   [{"document": self.document()}])
+        self.assertFalse(got["ok"])
+
+    def test_it_works_on_the_folder_above_savedata_too(self):
+        """A copy off a console is the folder holding SaveData, not its
+        contents."""
+        above = os.path.dirname(self.folder)
+        got = self.api.create_save(above, [{"document": self.document("X")}])
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["path"], self.where)
+
+
 if __name__ == "__main__":
     unittest.main()

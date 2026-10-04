@@ -115,6 +115,19 @@ def is_save_folder(path: str) -> bool:
     return any(os.path.isfile(os.path.join(here, n)) for n in GAME_STATE)
 
 
+def maps_path_for(path: str):
+    """Where a maps file belongs in this save folder, or None.
+
+    Mirrors from_directory's two shapes: a folder holding SaveData, or the
+    contents of SaveData directly, which is what a console dump looks like.
+    """
+    if not path or not os.path.isdir(path):
+        return None
+    inner = os.path.join(path, "SaveData")
+    here = inner if os.path.isdir(inner) else path
+    return os.path.join(here, MAPS_FILE)
+
+
 def describe(candidates: list) -> list:
     """Give every candidate a label that tells it from the others.
 

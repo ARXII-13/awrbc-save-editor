@@ -71,6 +71,16 @@ def smoke_test():
             "the map editor got into the save editor: %s\n"
             "See tools/desktop_payload.py." % ", ".join(stowaways))
 
+    # The format description. Without it the app works everywhere except
+    # the one place it is needed: a console save with no maps file in it,
+    # where making one is the whole point.
+    table = os.path.join(os.path.dirname(os.path.dirname(page)),
+                         "awrbc", "core", "typetable.json")
+    if not os.path.exists(table):
+        raise SystemExit(
+            "the build has no awrbc/core/typetable.json - it could not make "
+            "a maps file for a save that has none.")
+
     pack = os.path.join(os.path.dirname(index), "sprites", "manifest.json")
     if not os.path.exists(pack):
         raise SystemExit(
