@@ -666,13 +666,50 @@ describe('choosing between saves', () => {
 
   const picker = (p) => byClass(p.panel, 'savepick')[0];
 
+  /** Every option in the picker, through whatever groups they sit in. */
+  const options = (list) => {
+    const out = [];
+    const walk = (n) => {
+      if (!n || typeof n !== 'object') return;
+      if (n.tag === 'option') out.push(n);
+      for (const kid of n.children ?? []) walk(kid);
+    };
+    walk(list);
+    return out;
+  };
+  const saveOptions = (list) =>
+    options(list).filter((o) => o.value && o.value !== '__browse__');
+
   it('lists every save it found', async () => {
     const p = panelOver(two);
     await p.api.refresh();
     const list = picker(p);
-    assert.ok(list, 'there should be a picker when there is a choice');
-    assert.deepEqual(list.children.map(text),
+    assert.ok(list, 'there should be a picker');
+    assert.deepEqual(saveOptions(list).map(text),
                      ['Ryujinx profile 0', 'Sudachi profile abcdef01']);
+  });
+
+  it('offers browsing in the same list, not beside it', async () => {
+    // One question - which save - so one control. A list of found saves
+    // next to an "Open a save..." button read as two unrelated things.
+    const p = panelOver(two);
+    await p.api.refresh();
+    const browse = options(picker(p)).find((o) => o.value === '__browse__');
+    assert.ok(browse, 'browsing should be an entry in the picker');
+    assert.match(text(browse), /choose a folder/i);
+  });
+
+  it('separates what it found from what you opened by hand', async () => {
+    const p = panelOver(two);
+    await p.api.refresh();
+    const groups = [];
+    const walk = (n) => {
+      if (!n || typeof n !== 'object') return;
+      if (n.tag === 'optgroup') groups.push(n.label);
+      for (const kid of n.children ?? []) walk(kid);
+    };
+    walk(picker(p));
+    assert.ok(groups.some((g) => /found on this machine/i.test(g)), groups);
   });
 
   it('is a list, not a row of buttons', async () => {
@@ -683,25 +720,78 @@ describe('choosing between saves', () => {
     assert.equal(picker(p).tag, 'select');
   });
 
-  it('offers no picker when there is only one save', async () => {
+  it('offers the picker even with a single save', async () => {
+    // Browsing lives in it, so hiding it would hide the only way to reach a
+    // save that was not found.
     const p = panelOver(one);
     await p.api.refresh();
-    assert.equal(byClass(p.panel, 'savepick').length, 0);
+    assert.equal(byClass(p.panel, 'savepick').length, 1);
   });
 
-  it('still offers to open one by hand when there is only one', async () => {
-    // The whole point of browsing: the save that was not found.
-    const p = panelOver(one);
+  it('offers it even when nothing at all was found', async () => {
+    // This is the state where pointing at a save by hand matters most, and
+    // the panel used to replace itself with a message and no control.
+    const p = panelOver({ find_saves: async () => ({ ok: true, saves: [] }) });
     await p.api.refresh();
-    assert.ok(byText(p.panel, 'Open a save…'), 'browse should always be there');
+    const list = picker(p);
+    assert.ok(list, 'there should still be a picker');
+    assert.ok(options(list).some((o) => o.value === '__browse__'));
+  });
+
+  const groupOf = (list, value) => {
+    let found = null;
+    const walk = (n, label) => {
+      if (!n || typeof n !== 'object') return;
+      const here = n.tag === 'optgroup' ? n.label : label;
+      if (n.tag === 'option' && n.value === value) found = here;
+      for (const kid of n.children ?? []) walk(kid, here);
+    };
+    walk(list, null);
+    return found;
+  };
+
+  it('puts a save you opened by hand in its own group', async () => {
+    // Which of these the tool found and which one you went and fetched is
+    // worth knowing, especially when a console dump sits beside a detected
+    // emulator save.
+    const p = panelOver({
+      ...two,
+      browse_for_save: async () => ({ ok: true, cancelled: false, saves: [
+        { path: 'D:/dump/maps', label: 'directory', source: 'directory' }] }),
+      open_save: async () => ({ ok: true, maps: [] }),
+    });
+    await p.api.refresh();
+    const list = picker(p);
+    list.value = '__browse__';
+    list.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const after = picker(p);
+    assert.match(groupOf(after, 'D:/dump/maps') || '', /by hand/i);
+    assert.match(groupOf(after, 'C:/ryu/maps') || '', /found/i);
   });
 
   it('marks the open one as selected', async () => {
     const p = panelOver(two);
     await p.api.refresh();
-    const [first, second] = picker(p).children;
+    const [first, second] = saveOptions(picker(p));
     assert.equal(first.selected, true);
     assert.notEqual(second.selected, true);
+  });
+
+  it('puts the list back when browsing is cancelled', async () => {
+    // Otherwise the picker reads "Choose a folder..." as though that were
+    // the open save.
+    const p = panelOver({
+      ...two,
+      browse_for_save: async () => ({ ok: true, cancelled: true, saves: [] }),
+    });
+    await p.api.refresh();
+    const list = picker(p);
+    list.value = '__browse__';
+    list.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(list.value, 'C:/ryu/maps');
   });
 
   it('opens the other one when it is chosen', async () => {
@@ -785,7 +875,7 @@ describe('choosing between saves', () => {
     const p = panelOver({ find_saves: async () => ({ ok: true, saves: [] }) });
     await p.api.refresh();
     const said = text(byClass(p.panel, 'notice')[0]);
-    assert.match(said, /No Advance Wars save/);
+    assert.match(said, /No Advance Wars save was found/);
     assert.ok(!/Ryujinx|yuzu|Sudachi/i.test(said), said);
   });
 });

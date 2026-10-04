@@ -22,6 +22,9 @@ const THUMB = 7;   // pixels per tile in the list; big enough to recognise
 const BIG_MIN = 10;
 const BIG_MAX = 32;
 
+// The one entry in the save list that is an action rather than a save.
+const BROWSE = '__browse__';
+
 /**
  * Wire up the save panel.
  *
@@ -87,14 +90,12 @@ export function attachSaves({ panel, poster, importControl }) {
     if (!got.ok) return say(got.error, true);
     found = got.saves ?? [];
     if (!found.length) {
-      // Deliberately not naming one emulator. A save can come from any of
-      // them, or off a modded console, and telling somebody their Ryujinx
-      // save is missing when they do not use Ryujinx is worse than saying
-      // nothing.
-      return say('No Advance Wars save found on this machine. ' +
-                 'If yours is somewhere else - a portable install, or a ' +
-                 'copy off a console - the command line can be pointed at ' +
-                 'it with --save-dir.');
+      // Still draws the panel, because the picker is the way out of this
+      // state: somebody whose save was not found needs to point at it, and
+      // replacing everything with a message took that control away.
+      savePath = null;
+      entries = [];
+      return render();
     }
     savePath = savePath ?? found[0].path;
     await open(savePath);
@@ -112,31 +113,62 @@ export function attachSaves({ panel, poster, importControl }) {
    * here. Hidden entirely for the ordinary case of a single save, because a
    * row of one button is a decision nobody has.
    */
+  /**
+   * Where the maps you are looking at came from.
+   *
+   * One control, because there is one question: which save. A list of found
+   * saves beside an "Open a save..." button read as two unrelated things,
+   * when they are alternatives - and the thing somebody with a console dump
+   * needs was the one that looked like an afterthought.
+   *
+   * So browsing is an entry in the same list. Picking it opens a dialog and
+   * puts the list back where it was first, because a cancelled dialog must
+   * not look like it changed the save.
+   */
   function switcher() {
-    const browse = el('button', {
-      title: 'Point at a save yourself - a folder, or the maps file',
-      textContent: 'Open a save…' });
-    browse.onclick = browseForSave;
-
-    // A row of buttons was fine for two and a mess for four, which is what
-    // a machine with two profiles and a folder copy actually produces. A
-    // list is the ordinary control for picking one of several and does not
-    // grow sideways.
-    if (found.length < 2) {
-      return el('div', { className: 'saverow' }, browse);
-    }
-
     const pick = el('select', { className: 'savepick' });
-    for (const save of found) {
+    const detected = found.filter((s) => !s.byHand);
+    const byHand = found.filter((s) => s.byHand);
+
+    const option = (save) => {
       const opt = el('option', {
         value: save.path,
+        title: save.path,
         textContent: save.label || save.source || 'save',
       });
       if (save.path === savePath) opt.selected = true;
-      pick.append(opt);
+      return opt;
+    };
+
+    const group = (label, saves) => {
+      const g = el('optgroup', { label });
+      for (const save of saves) g.append(option(save));
+      return g;
+    };
+
+    if (!found.length) {
+      const none = el('option', {
+        value: '', textContent: 'No save found on this machine' });
+      none.disabled = true;
+      none.selected = true;
+      pick.append(none);
     }
+    // Named groups, so it is clear which of these the tool found and which
+    // one you went and fetched.
+    if (detected.length) pick.append(group('Found on this machine', detected));
+    if (byHand.length) pick.append(group('Opened by hand', byHand));
+
+    const browse = el('optgroup', { label: 'Somewhere else' },
+      el('option', { value: BROWSE,
+                     textContent: 'Choose a folder or maps file…' }));
+    pick.append(browse);
+
     pick.onchange = () => {
       const chosen = pick.value;
+      if (chosen === BROWSE) {
+        pick.value = savePath || '';   // a cancelled dialog changes nothing
+        return browseForSave();
+      }
       if (!chosen || chosen === savePath) return;
       if (pending() && !confirm(
           'You have unsaved changes. Switching saves forgets them.\n\n' +
@@ -150,8 +182,7 @@ export function attachSaves({ panel, poster, importControl }) {
     };
 
     return el('div', { className: 'saverow' },
-      el('span', { className: 'rowlabel', textContent: 'Save' }),
-      pick, browse);
+      el('span', { className: 'rowlabel', textContent: 'Save' }), pick);
   }
 
   async function open(path) {
@@ -343,28 +374,49 @@ export function attachSaves({ panel, poster, importControl }) {
 
     const count = entries.length;
     const where = current();
-    const head = el('div', { className: 'listhead' },
+    const open_ = !!savePath;
+
+    // Nothing to back up or restore until a save is open.
+    takeBackup.disabled = !open_;
+    roll.disabled = !open_;
+
+    const head = open_ ? el('div', { className: 'listhead' },
       el('h2', { textContent: count === 1 ? '1 map in this save'
                                           : `${count} maps in this save` }),
-      // Whichever of the two is not already on screen. With the switcher
-      // up, the selected chip has said which save this is, so repeating it
-      // here wastes the line that could carry the path instead.
+      // Whichever of the two is not already on screen. With the picker up,
+      // the selected entry has said which save this is, so repeating it here
+      // wastes the line that could carry the path instead.
       el('span', {
         className: 'sub', title: savePath || '',
         textContent: (found.length > 1
           ? savePath
           : where?.label || savePath) || '',
-      }));
+      })) : null;
 
     const pickers = switcher();
     const bar = commitBar();
 
-    const list = (count || queued.length)
-      ? el('div', { className: 'maplist' },
-           ...entries.map((entry, i) => card(entry, i)),
-           ...queued.map((item, i) => queuedCard(item, i)))
-      : el('div', { className: 'notice',
-                    textContent: 'No custom maps in this save yet.' });
+    let list;
+    if (!open_) {
+      // Deliberately not naming one emulator. A save can come from any of
+      // them, or off a modded console, and telling somebody their Ryujinx
+      // save is missing when they have never run Ryujinx is worse than
+      // saying nothing.
+      list = el('div', {
+        className: 'notice',
+        textContent:
+          'No Advance Wars save was found on this machine. If yours is ' +
+          'somewhere else - a portable install, or a copy off a console - ' +
+          'choose "Somewhere else" above and point at the folder holding it.',
+      });
+    } else if (count || queued.length) {
+      list = el('div', { className: 'maplist' },
+        ...entries.map((entry, i) => card(entry, i)),
+        ...queued.map((item, i) => queuedCard(item, i)));
+    } else {
+      list = el('div', { className: 'notice',
+                         textContent: 'No custom maps in this save yet.' });
+    }
 
     // The import control belongs to the page, which knows how to read a
     // file; it is placed here so every control sits on one row instead of
@@ -374,7 +426,7 @@ export function attachSaves({ panel, poster, importControl }) {
          ...(importControl ? [importControl] : []), takeBackup, roll),
       ...(pickers ? [pickers] : []),
       ...(bar ? [bar] : []),
-      head,
+      ...(head ? [head] : []),
       list);
   }
 
@@ -469,7 +521,9 @@ export function attachSaves({ panel, poster, importControl }) {
     // Added to the list rather than replacing it, so a hand-picked save
     // sits beside the found ones and can be switched back from.
     for (const save of got.saves) {
-      if (!found.some((s) => s.path === save.path)) found.push(save);
+      if (!found.some((s) => s.path === save.path)) {
+        found.push({ ...save, byHand: true });
+      }
     }
     clearStaged();
     savePath = got.saves[0].path;
