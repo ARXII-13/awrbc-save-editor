@@ -192,5 +192,122 @@ class NothingAboutTheArchive(ApiCase):
         self.assertNotIn("core import archive", source)
 
 
+class ApplyingAWholeBatch(ApiCase):
+    """Several changes, one write.
+
+    This used to write once per map, which took a backup per map and left a
+    half-finished clear-out looking like five separate edits - with five
+    windows in which the game could be reopened underneath it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Four, so a removal can shift the index of a later one.
+        with open(self.path, "wb") as fh:
+            fh.write(fixture.build_document(
+                [a_map("One"), a_map("Two"), a_map("Three"), a_map("Four")]))
+
+    def names(self):
+        return [m["name"] for m in self.api.open_save(self.path)["maps"]]
+
+    def document(self, name="New"):
+        from awrbc.core import schema
+        return schema.build_document(a_map(name))
+
+    def snapshot_count(self):
+        from awrbc.core import backup
+        return len(backup.snapshots(self.path))
+
+    def test_it_writes_once_for_several_changes(self):
+        before = self.snapshot_count()
+        got = self.api.apply_changes(
+            self.path, [0], [{"document": self.document("A")},
+                             {"document": self.document("B")}])
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.snapshot_count() - before, 1,
+                         "one batch should leave one backup, not one per map")
+
+    def test_removals_happen_from_the_back(self):
+        """Every removal shifts the indices after it. Taking 1 and 3 by
+        ascending index deletes Two and whatever slid into slot 3 - which is
+        a different map than the one that was marked."""
+        got = self.api.apply_changes(self.path, [1, 3], [])
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(sorted(got["removed"]), ["Four", "Two"])
+        self.assertEqual(self.names(), ["One", "Three"])
+
+    def test_an_unplayable_map_stops_the_whole_batch(self):
+        """Half a batch is worse than none: the message would say it worked
+        and there would be no way to tell which half landed."""
+        from awrbc.core import schema
+        before, snaps = self.names(), self.snapshot_count()
+        bare = Map(name="Empty", cols=4, rows=4,
+                   tiles=[[Tile(type=1) for _ in range(4)] for _ in range(4)],
+                   units=[[None] * 4 for _ in range(4)])
+        got = self.api.apply_changes(
+            self.path, [0], [{"document": self.document("Good")},
+                             {"document": schema.build_document(bare)}])
+        self.assertFalse(got["ok"])
+        self.assertEqual(got["kind"], "ValidationFailed")
+        self.assertEqual(self.names(), before, "nothing should be written")
+        self.assertEqual(self.snapshot_count(), snaps,
+                         "a refused batch should not leave a backup either - "
+                         "every failed import would litter one")
+
+    def test_a_bad_index_stops_the_whole_batch(self):
+        before = self.names()
+        got = self.api.apply_changes(
+            self.path, [99], [{"document": self.document()}])
+        self.assertFalse(got["ok"])
+        self.assertEqual(self.names(), before)
+
+    def test_nothing_staged_writes_nothing(self):
+        before = self.snapshot_count()
+        got = self.api.apply_changes(self.path, [], [])
+        self.assertTrue(got["ok"])
+        self.assertTrue(got.get("nothing"))
+        self.assertEqual(self.snapshot_count(), before,
+                         "an empty batch should not even take a backup")
+
+    def test_it_refuses_while_an_emulator_is_running(self):
+        before = self.names()
+        busy = SaveApi(game_running=lambda: True)
+        got = busy.apply_changes(self.path, [0], [])
+        self.assertFalse(got["ok"])
+        self.assertEqual(self.names(), before)
+
+    def test_removals_and_additions_in_one_pass(self):
+        got = self.api.apply_changes(
+            self.path, [0], [{"document": self.document("Brand New")}])
+        self.assertTrue(got["ok"], got)
+        left = self.names()
+        self.assertNotIn("One", left)
+        self.assertIn("Brand New", left)
+
+    def test_a_repeated_index_is_not_two_removals(self):
+        got = self.api.apply_changes(self.path, [1, 1], [])
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(self.names(), ["One", "Three", "Four"])
+
+    def test_the_name_given_wins_over_the_document(self):
+        got = self.api.apply_changes(
+            self.path, [], [{"document": self.document("Inside"),
+                             "name": "Chosen"}])
+        self.assertTrue(got["ok"], got)
+        self.assertIn("Chosen", self.names())
+
+    def test_the_single_map_calls_still_work(self):
+        """They are this call with a list of one, and their shapes are what
+        the rest of the suite and any other caller expect."""
+        added = self.api.import_map(self.path, self.document("Solo"))
+        self.assertTrue(added["ok"], added)
+        self.assertIsNotNone(added["slot"])
+        self.assertIn("Solo", self.names())
+
+        dropped = self.api.remove_map(self.path, 0)
+        self.assertTrue(dropped["ok"], dropped)
+        self.assertEqual(dropped["removed"], "One")
+
+
 if __name__ == "__main__":
     unittest.main()

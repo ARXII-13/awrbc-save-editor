@@ -42,9 +42,11 @@
 
   <div class="toolbar">
     <label class="btn primary"
-           title="A map .json, or an Export bundle .zip from the editor">
-      Import a map file…
-      <input id="mapfile" type="file" accept=".json,.zip" hidden>
+           title="One or more map .json files - they queue up until you save">
+      Import map files…
+      <!-- More than one, because clearing out a save and refilling it is
+           one job, not six. They queue up and go in together. -->
+      <input id="mapfile" type="file" accept=".json,.zip" multiple hidden>
     </label>
   </div>
 
@@ -85,27 +87,33 @@ async function chosen(file) {
   return JSON.parse(await file.text());
 }
 
-let picked = null;
 const input = document.getElementById("mapfile");
 
 const panel = attachIfDesktop({
   panel: document.getElementById("savepanel"),
   poster: (doc, tile) => poster(doc, tile || PREVIEW_TILE),
-  pickMap: () => picked,
 });
 
 input.onchange = async () => {
-  const file = input.files && input.files[0];
+  const files = [...(input.files || [])];
   input.value = "";                      // so the same file can be picked twice
-  try {
-    picked = await chosen(file);
-  } catch (err) {
-    alert(err.message);
-    return;
+
+  // One bad file should not throw away the good ones it was picked with.
+  const docs = [];
+  const refused = [];
+  for (const file of files) {
+    try {
+      const doc = await chosen(file);
+      if (doc) docs.push(doc);
+    } catch (err) {
+      refused.push(`${file.name}: ${err.message}`);
+    }
   }
-  if (!picked) return;
+  if (refused.length) alert(refused.join("\n\n"));
+  if (!docs.length) return;
+
   const api = await panel;
-  if (api && api.addPicked) await api.addPicked();
+  if (api && api.queue) api.queue(docs);
 };
 </script>
 

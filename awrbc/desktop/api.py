@@ -50,6 +50,14 @@ class SaveApi:
         # check can be stubbed where a developer has the emulator open.
         self._game_running = game_running or (lambda: False)
         self._path = None
+        # Set once the window exists, because the file dialog belongs to it.
+        # Absent in tests and in --check, where there is no window and
+        # browsing is not what is being exercised.
+        self._window = None
+
+    def use_window(self, window):
+        """Hand over the window, so a file dialog has something to sit on."""
+        self._window = window
 
     # --- finding a save --------------------------------------------------
 
@@ -64,6 +72,41 @@ class SaveApi:
                 "label": getattr(c, "label", c.source),
             })
         return {"ok": True, "saves": found}
+
+    @_guard
+    def browse_for_save(self, kind="folder"):
+        """Let somebody point at a save themselves.
+
+        The emulator list covers the common case and cannot cover the other
+        one: a save off a modded console arrives by whichever route its owner
+        chose - FTP, SD card, JKSV over USB - and lands wherever they put it.
+        Guessing at that is hopeless, so this asks.
+
+        A folder or the file itself, because both are things people end up
+        holding. `locate.from_directory` already accepts either, including a
+        folder that turns out to be a whole emulator data root.
+        """
+        if self._window is None:
+            raise AwrbcError("there is no window to open a file dialog on")
+
+        import webview
+        dialog = (webview.FOLDER_DIALOG if kind == "folder"
+                  else webview.OPEN_DIALOG)
+        picked = self._window.create_file_dialog(dialog, allow_multiple=False)
+        if not picked:
+            return {"ok": True, "cancelled": True, "saves": []}
+
+        chosen = picked[0] if isinstance(picked, (list, tuple)) else picked
+        found = locate.from_directory(chosen)
+        if not found:
+            return {"ok": False, "kind": "SaveNotFound",
+                    "error": "no Advance Wars save data in %s.\n\nPick the "
+                             "folder holding the 'maps' file, or that file "
+                             "itself." % chosen}
+        return {"ok": True, "cancelled": False, "saves": [
+            {"path": c.path, "profile": c.profile, "saveId": c.save_id,
+             "source": c.source, "size": c.size, "label": c.label}
+            for c in found]}
 
     @_guard
     def open_save(self, path):
@@ -104,37 +147,81 @@ class SaveApi:
                 "it, so close the game and let it shut down properly first.")
 
     @_guard
-    def import_map(self, path, document, name=None):
-        """Add a map. Takes the same document the editor exports."""
+    def apply_changes(self, path, removes=None, adds=None):
+        """Every pending change, in one write.
+
+        The only path that modifies a save; `import_map` and `remove_map` are
+        this with a list of one. A tool that wrote once per map took a backup
+        per map too, so clearing out five of them left five snapshots and five
+        chances for the game to be reopened midway.
+
+        Order matters and is not the caller's problem. Removals happen first
+        and from the back, because every one of them shifts the indices after
+        it - taking 1 then 3 from a four-map save otherwise deletes 1 and the
+        map that used to be 4.
+
+        Nothing is written unless every addition is playable. A batch that
+        half-applied would leave somebody reading a success message with no
+        way to know which half, and the save is the one thing here that
+        cannot be re-derived.
+        """
         self._refuse_if_running()
-        m = schema.from_json(document)
-        report = validate.check(m)
-        if report.errors:
-            return {"ok": False, "error": "that map is not playable",
-                    "kind": "ValidationFailed",
-                    "findings": [vars(f) for f in report.errors]}
+        removes = sorted(set(removes or []), reverse=True)
+        adds = list(adds or [])
+        if not removes and not adds:
+            return {"ok": True, "added": [], "removed": [], "bytes": 0,
+                    "backup": None, "warnings": [], "nothing": True}
 
         doc = savefile.read(path)
+
+        for index in removes:
+            if not 0 <= index < len(doc.maps):
+                raise AwrbcError("no map at %d; the save holds %d"
+                                 % (index, len(doc.maps)))
+
+        # Validated before anything is touched, so a bad map in the queue
+        # stops the batch rather than landing half of it.
+        prepared, warnings = [], []
+        for entry in adds:
+            document = entry.get("document") if isinstance(entry, dict) else entry
+            name = entry.get("name") if isinstance(entry, dict) else None
+            m = schema.from_json(document)
+            report = validate.check(m)
+            if report.errors:
+                return {"ok": False,
+                        "error": "%s is not playable" % (
+                            name or m.name or "that map"),
+                        "kind": "ValidationFailed",
+                        "findings": [vars(f) for f in report.errors]}
+            warnings.extend(vars(f) for f in report.warnings)
+            prepared.append((m, name))
+
         snap = backup.snapshot(path)
-        slot = savefile.add_map(doc, m, name=name)
+        taken = [doc.maps[i].name for i in removes]
+        for index in removes:
+            savefile.remove_map(doc, index)
+        slots = [savefile.add_map(doc, m, name=name) for m, name in prepared]
         written = savefile.write(doc, path)
-        return {"ok": True, "slot": slot, "bytes": written,
-                "backup": snap.path,
-                "warnings": [vars(f) for f in report.warnings]}
+
+        return {"ok": True, "added": slots, "removed": taken,
+                "bytes": written, "backup": snap.path, "warnings": warnings}
+
+    @_guard
+    def import_map(self, path, document, name=None):
+        """Add one map. The batch path with a list of one."""
+        got = self.apply_changes(path, [], [{"document": document,
+                                             "name": name}])
+        if got.get("ok"):
+            got["slot"] = (got["added"] or [None])[0]
+        return got
 
     @_guard
     def remove_map(self, path, index):
-        self._refuse_if_running()
-        doc = savefile.read(path)
-        if not 0 <= index < len(doc.maps):
-            raise AwrbcError("no map at %d; the save holds %d"
-                             % (index, len(doc.maps)))
-        name = doc.maps[index].name
-        snap = backup.snapshot(path)
-        slot = savefile.remove_map(doc, index)
-        savefile.write(doc, path)
-        return {"ok": True, "removed": name, "slot": slot,
-                "backup": snap.path}
+        """Remove one map. The batch path with a list of one."""
+        got = self.apply_changes(path, [index], [])
+        if got.get("ok"):
+            got["removed"] = (got["removed"] or [None])[0]
+        return got
 
     # --- backups ---------------------------------------------------------
 

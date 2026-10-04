@@ -223,56 +223,215 @@ describe('the panel', () => {
   });
 });
 
-describe('importing a map from a file', () => {
-  it('writes the picked document into the save', async () => {
+describe('queueing maps instead of writing them', () => {
+  const doc = (name) => ({ name, size: { cols: 12, rows: 10 } });
+
+  it('writes nothing when a map is queued', async () => {
+    // The whole point. Until Save changes, the save on disk is untouched.
+    let called = false;
+    const p = panelOver({
+      apply_changes: async () => { called = true; return { ok: true }; },
+    });
+    await p.api.refresh();
+    p.api.queue([doc('Daibi')]);
+    assert.equal(called, false);
+  });
+
+  it('shows a queued map as a card, like the ones already there', async () => {
+    const p = panelOver({});
+    await p.api.refresh();
+    p.api.queue([doc('Daibi')]);
+    const coming = byClass(p.panel, 'mapcard').filter(
+      (c) => String(c.className).includes('coming'));
+    assert.equal(coming.length, 1, 'a queued map should be drawn as a card');
+    assert.equal(text(byClass(coming[0], 'name')[0]), 'Daibi');
+  });
+
+  it('takes several at once', async () => {
+    const p = panelOver({});
+    await p.api.refresh();
+    p.api.queue([doc('One'), doc('Two'), doc('Three')]);
+    assert.equal(byClass(p.panel, 'coming').filter(
+      (n) => String(n.className).includes('badge')).length, 3);
+  });
+
+  it('writes all of them in one call when saved', async () => {
     let seen = null;
-    const doc = { name: 'Daibi', size: { cols: 12, rows: 10 } };
     const p = panelOver({
-      import_map: async (path, document) => {
-        seen = [path, document];
-        return { ok: true, slot: 3, backup: 'b.bak' };
+      apply_changes: async (path, removes, adds) => {
+        seen = { path, removes, adds };
+        return { ok: true, added: ['1', '2'], removed: [], backup: 'b.bak' };
       },
-    }, { pickMap: () => doc });
-
+    });
     await p.api.refresh();
-    await p.api.addPicked();
-    assert.deepEqual(seen, ['C:/save/maps', doc]);
+    p.api.queue([doc('One'), doc('Two')]);
+    await p.api.commit();
+
+    assert.equal(seen.path, 'C:/save/maps');
+    assert.deepEqual(seen.removes, []);
+    assert.deepEqual(seen.adds.map((a) => a.document.name), ['One', 'Two']);
   });
 
-  it('does nothing when no map was picked', async () => {
+  it('asks before writing, and writes nothing when declined', async () => {
     let called = false;
     const p = panelOver({
-      import_map: async () => { called = true; return { ok: true }; },
-    }, { pickMap: () => null });
-
+      apply_changes: async () => { called = true; return { ok: true }; },
+    }, { confirms: [false] });
     await p.api.refresh();
-    await p.api.addPicked();
+    p.api.queue([doc('Daibi')]);
+    await p.api.commit();
     assert.equal(called, false);
   });
 
-  it('asks before writing, and does not write when declined', async () => {
+  it('does nothing at all when nothing is staged', async () => {
     let called = false;
     const p = panelOver({
-      import_map: async () => { called = true; return { ok: true }; },
-    }, { pickMap: () => ({ name: 'Daibi' }), confirms: [false] });
-
+      apply_changes: async () => { called = true; return { ok: true }; },
+    });
     await p.api.refresh();
-    await p.api.addPicked();
+    await p.api.commit();
     assert.equal(called, false);
   });
 
-  it('shows the findings when the map is refused', async () => {
+  it('shows the findings when a queued map is refused', async () => {
     const p = panelOver({
-      import_map: async () => ({
-        ok: false, error: 'that map did not pass validation',
+      apply_changes: async () => ({
+        ok: false, error: 'Daibi is not playable',
         findings: [{ code: 'play.noHQ', message: 'team 0 has no HQ' }],
       }),
-    }, { pickMap: () => ({ name: 'Daibi' }) });
-
+    });
     await p.api.refresh();
-    await p.api.addPicked();
+    p.api.queue([doc('Daibi')]);
+    await p.api.commit();
     assert.ok(p.alerts.some((m) => m.includes('team 0 has no HQ')),
               p.alerts.join(' | '));
+  });
+
+  it('keeps the queue when the batch is refused', async () => {
+    // It is what somebody would otherwise have to pick all over again, and
+    // a refused batch changed nothing.
+    const p = panelOver({
+      apply_changes: async () => ({ ok: false, error: 'no' }),
+    });
+    await p.api.refresh();
+    p.api.queue([doc('One'), doc('Two')]);
+    await p.api.commit();
+    assert.equal(byClass(p.panel, 'coming').filter(
+      (n) => String(n.className).includes('badge')).length, 2);
+  });
+});
+
+describe('marking maps for removal', () => {
+  const twoMaps = {
+    open_save: async () => ({ ok: true, maps: [
+      { index: 0, name: 'Daibi', playable: true, derived: { players: 2 },
+        document: { size: { cols: 30, rows: 20 }, author: 'debbie' } },
+      { index: 1, name: 'Renew', playable: true, derived: { players: 2 },
+        document: { size: { cols: 12, rows: 10 }, author: 'yoyo' } },
+    ] }),
+  };
+
+  const removeButtons = (p) =>
+    byClass(p.panel, 'mapcard').map(
+      (c) => buttons(c).find((b) => ['Remove', 'Keep'].includes(b.textContent)));
+
+  it('writes nothing when a map is marked', async () => {
+    let called = false;
+    const p = panelOver({
+      ...twoMaps,
+      apply_changes: async () => { called = true; return { ok: true }; },
+    });
+    await p.api.refresh();
+    removeButtons(p)[0].onclick();
+    assert.equal(called, false);
+  });
+
+  it('says on the card that it is going', async () => {
+    const p = panelOver(twoMaps);
+    await p.api.refresh();
+    removeButtons(p)[0].onclick();
+    assert.equal(byClass(p.panel, 'going').filter(
+      (n) => String(n.className).includes('badge')).length, 1);
+  });
+
+  it('turns into its own undo', async () => {
+    const p = panelOver(twoMaps);
+    await p.api.refresh();
+    assert.equal(removeButtons(p)[0].textContent, 'Remove');
+    removeButtons(p)[0].onclick();
+    assert.equal(removeButtons(p)[0].textContent, 'Keep');
+    removeButtons(p)[0].onclick();
+    assert.equal(removeButtons(p)[0].textContent, 'Remove');
+    assert.equal(byClass(p.panel, 'going').length, 0);
+  });
+
+  it('sends every marked index in one call', async () => {
+    let seen = null;
+    const p = panelOver({
+      ...twoMaps,
+      apply_changes: async (path, removes, adds) => {
+        seen = { removes, adds };
+        return { ok: true, added: [], removed: ['Daibi', 'Renew'],
+                 backup: 'b.bak' };
+      },
+    });
+    await p.api.refresh();
+    removeButtons(p)[0].onclick();
+    removeButtons(p)[1].onclick();
+    await p.api.commit();
+    assert.deepEqual([...seen.removes].sort(), [0, 1]);
+  });
+
+  it('carries removals and additions in the same write', async () => {
+    let seen = null;
+    const p = panelOver({
+      ...twoMaps,
+      apply_changes: async (path, removes, adds) => {
+        seen = { removes, adds };
+        return { ok: true, added: ['3'], removed: ['Daibi'], backup: 'b' };
+      },
+    });
+    await p.api.refresh();
+    removeButtons(p)[0].onclick();
+    p.api.queue([{ name: 'New', size: { cols: 8, rows: 8 } }]);
+    await p.api.commit();
+    assert.deepEqual(seen.removes, [0]);
+    assert.equal(seen.adds.length, 1);
+  });
+});
+
+describe('the pending-changes bar', () => {
+  it('is absent until something is staged', async () => {
+    const p = panelOver({});
+    await p.api.refresh();
+    assert.equal(byClass(p.panel, 'commitbar').length, 0);
+  });
+
+  it('appears once something is', async () => {
+    const p = panelOver({});
+    await p.api.refresh();
+    p.api.queue([{ name: 'One', size: { cols: 8, rows: 8 } }]);
+    assert.equal(byClass(p.panel, 'commitbar').length, 1);
+  });
+
+  it('says what is about to happen', async () => {
+    const p = panelOver({});
+    await p.api.refresh();
+    p.api.queue([{ name: 'One', size: { cols: 8, rows: 8 } },
+                 { name: 'Two', size: { cols: 8, rows: 8 } }]);
+    assert.match(text(byClass(p.panel, 'what')[0]), /2 to add/);
+  });
+
+  it('discards the queue without touching the save', async () => {
+    let called = false;
+    const p = panelOver({
+      apply_changes: async () => { called = true; return { ok: true }; },
+    });
+    await p.api.refresh();
+    p.api.queue([{ name: 'One', size: { cols: 8, rows: 8 } }]);
+    byText(p.panel, 'Discard').onclick();
+    assert.equal(byClass(p.panel, 'commitbar').length, 0);
+    assert.equal(called, false);
   });
 });
 

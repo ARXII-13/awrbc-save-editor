@@ -25,15 +25,30 @@ const BIG_MAX = 32;
 /**
  * Wire up the save panel.
  *
- * `pickMap()` answers the map to import, or null - a document the caller got
- * from somewhere else, because this tool does not make maps. It used to be
+ * The caller hands maps in with `queue()` - documents it got from somewhere
+ * else, because this tool does not make them. It used to reach for
  * `currentDoc()`, the map open in the editor, which is exactly the coupling
  * the split removes.
+ *
+ * Nothing written here is immediate. Marks and queued maps accumulate until
+ * `commit()`, which is one read, one backup and one write however many
+ * changes are riding on it.
  */
-export function attachSaves({ panel, poster, pickMap }) {
+export function attachSaves({ panel, poster }) {
   let savePath = null;
   let entries = [];
   let found = [];        // every save on this machine, not just the open one
+
+  // What has been decided but not yet written. Nothing here has touched the
+  // save: `going` holds indices marked for removal, `queued` holds documents
+  // waiting to go in. Writing once at the end is the point - a write per map
+  // meant a backup per map, and a half-finished clear-out left five
+  // snapshots and five chances for the game to be reopened in the middle.
+  let going = new Set();
+  let queued = [];
+
+  const pending = () => going.size + queued.length;
+  function clearStaged() { going = new Set(); queued = []; }
 
   const el = (tag, props = {}, ...kids) => {
     const node = Object.assign(document.createElement(tag), props);
@@ -202,6 +217,41 @@ export function attachSaves({ panel, poster, pickMap }) {
     return { sheet, close };
   }
 
+  /**
+   * A map waiting to go in, drawn like the ones already there.
+   *
+   * Same card, because it is the same kind of thing and will look exactly
+   * like this once it lands. The difference is said in a badge rather than
+   * in a different shape.
+   */
+  function queuedCard(item, i) {
+    const named = (item.name || item.document?.name || '').trim();
+    const author = (item.document?.author || '').trim();
+
+    const undo = el('button', {
+      title: 'Do not add this one after all', textContent: 'Remove' });
+    undo.onclick = () => { queued.splice(i, 1); render(); };
+
+    return el('div', { className: 'mapcard coming' },
+      el('button', {
+        className: 'thumb', title: 'Show this map bigger',
+        onclick: () => showBig({ name: named, document: item.document }),
+      }, poster(item.document, THUMB)),
+      el('div', { className: 'meta' },
+        el('div', { className: named ? 'name' : 'name unnamed',
+                    textContent: named || 'Untitled' }),
+        el('div', { className: author ? 'by' : 'by anon',
+                    textContent: author ? 'by ' + author : 'no author' }),
+        el('div', { className: 'facts' },
+          el('span', { className: 'badge coming',
+                       textContent: 'will be added' }),
+          el('span', {
+            className: 'badge key',
+            textContent: `${item.document?.size?.cols ?? '?'}×${item.document?.size?.rows ?? '?'}`,
+          }))),
+      el('div', { className: 'cardactions' }, undo));
+  }
+
   /** One map, as a card: picture, what it is, and what you can do to it. */
   function card(entry, i) {
     // A button, not a div with a click on it: this is reachable by keyboard
@@ -213,15 +263,26 @@ export function attachSaves({ panel, poster, pickMap }) {
 
     // No "Open": there is nothing here to open a map into. Editing lives in
     // the map editor, which this tool is deliberately not.
+    //
+    // Marks rather than removes. Nothing leaves the save until Save changes,
+    // so this is reversible right up to that point and says so by turning
+    // into its own undo.
+    const marked = going.has(i);
     const drop = el('button', {
-      className: 'danger', title: 'Remove this map from the save',
-      textContent: 'Remove' });
-    drop.onclick = () => removeAt(i);
+      className: marked ? '' : 'danger',
+      title: marked ? 'Keep this map after all'
+                    : 'Mark this map to be removed when you save',
+      textContent: marked ? 'Keep' : 'Remove',
+    });
+    drop.onclick = () => {
+      if (marked) going.delete(i); else going.add(i);
+      render();
+    };
 
     const author = (entry.document?.author || '').trim();
     const named = (entry.name || '').trim();
 
-    return el('div', { className: 'mapcard' },
+    return el('div', { className: marked ? 'mapcard going' : 'mapcard' },
       look,
       el('div', { className: 'meta' },
         el('div', {
@@ -233,6 +294,8 @@ export function attachSaves({ panel, poster, pickMap }) {
           textContent: author ? 'by ' + author : 'no author',
         }),
         el('div', { className: 'facts' },
+          ...(marked ? [el('span', { className: 'badge going',
+                                     textContent: 'will be removed' })] : []),
           ...facts(entry).map((f) => el('span', {
             className: f.kind ? 'badge ' + f.kind : 'badge',
             textContent: f.text,
@@ -268,16 +331,125 @@ export function attachSaves({ panel, poster, pickMap }) {
           : where?.label || savePath) || '',
       }));
 
+    const browse = el('button', {
+      title: 'Point at a save yourself - a folder, or the maps file',
+      textContent: 'Open a save…' });
+    browse.onclick = browseForSave;
+
     const pickers = switcher();
+    const bar = commitBar();
+
+    const list = (count || queued.length)
+      ? el('div', { className: 'maplist' },
+           ...entries.map((entry, i) => card(entry, i)),
+           ...queued.map((item, i) => queuedCard(item, i)))
+      : el('div', { className: 'notice',
+                    textContent: 'No custom maps in this save yet.' });
+
     panel.replaceChildren(
-      el('div', { className: 'toolbar' }, takeBackup, roll),
+      el('div', { className: 'toolbar' }, takeBackup, roll, browse),
       ...(pickers ? [pickers] : []),
+      ...(bar ? [bar] : []),
       head,
-      count
-        ? el('div', { className: 'maplist' },
-             ...entries.map((entry, i) => card(entry, i)))
-        : el('div', { className: 'notice',
-                      textContent: 'No custom maps in this save yet.' }));
+      list);
+  }
+
+  /**
+   * What is about to happen, and the two buttons that decide it.
+   *
+   * Absent entirely when nothing is staged, so the panel in its resting
+   * state looks exactly as it did before any of this existed.
+   */
+  function commitBar() {
+    if (!pending()) return null;
+
+    const parts = [];
+    if (going.size) parts.push(going.size === 1 ? '1 map to remove'
+                                                : `${going.size} maps to remove`);
+    if (queued.length) parts.push(queued.length === 1 ? '1 to add'
+                                                      : `${queued.length} to add`);
+
+    const save = el('button', {
+      className: 'btn primary',
+      title: 'Write every pending change to the save, in one go',
+      textContent: 'Save changes' });
+    save.onclick = commit;
+
+    const drop = el('button', {
+      title: 'Forget the pending changes. The save has not been touched.',
+      textContent: 'Discard' });
+    drop.onclick = () => { clearStaged(); render(); };
+
+    return el('div', { className: 'commitbar' },
+      el('span', { className: 'what', textContent: parts.join(', ') }),
+      el('span', { className: 'spacer' }),
+      drop, save);
+  }
+
+  /** Add maps to the queue. Nothing is written until Save changes. */
+  function queue(documents) {
+    const list = Array.isArray(documents) ? documents : [documents];
+    for (const document of list) {
+      if (document) queued.push({ document, name: document.name || null });
+    }
+    render();
+  }
+
+  /** Write everything at once. */
+  async function commit() {
+    if (!pending()) return;
+    const bits = [];
+    if (going.size) {
+      bits.push(`remove ${going.size} map${going.size === 1 ? '' : 's'}`);
+    }
+    if (queued.length) {
+      bits.push(`add ${queued.length} map${queued.length === 1 ? '' : 's'}`);
+    }
+    // The one warning worth keeping: this writes to a file the game owns.
+    if (!confirm(`Save changes to ${bits.join(' and ')}?\n\n` +
+                 'A backup is taken first, and the game must be closed.')) {
+      return;
+    }
+
+    say('Writing…');
+    const got = await saves.applyChanges(
+      savePath, [...going], queued.map((q) => ({ document: q.document,
+                                                 name: q.name })));
+    if (!got.ok) {
+      const detail = (got.findings ?? [])
+        .map((f) => `\n  ${f.code}: ${f.message}`).join('');
+      alert(got.error + detail);
+      // Kept, not thrown away - the queue is what somebody would have to
+      // rebuild by hand, and a refused batch changed nothing.
+      return render();
+    }
+    clearStaged();
+    await open(savePath);
+    const done = [];
+    if (got.removed?.length) done.push(`removed ${got.removed.length}`);
+    if (got.added?.length) done.push(`added ${got.added.length}`);
+    alert(`Saved: ${done.join(', ')}.\nBackup: ${got.backup}`);
+  }
+
+  /** Point at a save by hand - the answer for a console dump. */
+  async function browseForSave() {
+    if (pending() && !confirm(
+        'You have unsaved changes. Opening another save forgets them.\n\n' +
+        'The save itself has not been touched.')) {
+      return;
+    }
+    const got = await saves.browseForSave('folder');
+    if (!got.ok) return alert(got.error);
+    if (got.cancelled || !got.saves?.length) return;
+
+    // Added to the list rather than replacing it, so a hand-picked save
+    // sits beside the found ones and can be switched back from.
+    for (const save of got.saves) {
+      if (!found.some((s) => s.path === save.path)) found.push(save);
+    }
+    clearStaged();
+    savePath = got.saves[0].path;
+    await open(savePath);
   }
 
   async function backupNow() {
@@ -326,43 +498,8 @@ export function attachSaves({ panel, poster, pickMap }) {
     alert(`Restored ${done.restored}.`);
   }
 
-  /** Put the map the caller picked into the save. */
-  async function addPicked() {
-    const doc = pickMap && pickMap();
-    if (!doc) return;
-    // Warn about the thing no undo reaches: this writes to a file the game
-    // owns.
-    if (!confirm(`Add "${doc.name || 'Untitled'}" to the save?\n\n` +
-                 'A backup is taken first, and the game must be closed.')) {
-      return;
-    }
-    say('Writing…');
-    const got = await saves.importMap(savePath, doc);
-    if (!got.ok) {
-      const detail = (got.findings ?? [])
-        .map((f) => `\n  ${f.code}: ${f.message}`).join('');
-      alert(got.error + detail);
-      return open(savePath);
-    }
-    await open(savePath);
-    alert(`Added as slot ${got.slot}.\nBackup: ${got.backup}`);
-  }
-
-  async function removeAt(index) {
-    const entry = entries[index];
-    if (!confirm(`Remove "${entry.name || '(unnamed)'}" from the save?\n\n` +
-                 'A backup is taken first.')) return;
-    say('Writing…');
-    const got = await saves.removeMap(savePath, index);
-    if (!got.ok) {
-      alert(got.error);
-      return open(savePath);
-    }
-    await open(savePath);
-  }
-
   refresh();
-  return { refresh, addPicked, showBig };
+  return { refresh, queue, commit, showBig };
 }
 
 /**

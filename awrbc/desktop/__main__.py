@@ -276,6 +276,9 @@ def main(argv=None, box=None):
 
     window = webview.create_window(TITLE, index, js_api=api,
                                    width=1280, height=860, min_size=(900, 600))
+    # The file dialog hangs off the window, so the bridge cannot ask for one
+    # until there is a window to ask with.
+    api.use_window(window)
     try:
         webview.start(debug=bool(os.environ.get("AWRBC_DEBUG")))
     except Exception as exc:                            # noqa: BLE001

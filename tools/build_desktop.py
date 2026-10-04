@@ -115,6 +115,27 @@ def zip_up():
     return path
 
 
+def clear_previous():
+    """Remove the last build, and explain the one reason it will not go.
+
+    Windows will not delete a file that is open, so a build started while a
+    previous one is still running fails on whichever DLL the loader happened
+    to reach first - PermissionError on ClrLoader.dll, which explains
+    nothing. `ignore_errors=True` made it worse by hiding that and letting
+    PyInstaller fail later for a reason even further from the cause.
+    """
+    if not os.path.isdir(BUILT):
+        return
+    try:
+        shutil.rmtree(BUILT)
+    except PermissionError as exc:
+        raise SystemExit(
+            "cannot replace the last build - something still has it open:\n"
+            "    %s\n\n"
+            "This is almost always the app itself. Close it and run this "
+            "again." % exc)
+
+
 def main():
     try:
         import PyInstaller                                 # noqa: F401
@@ -122,7 +143,7 @@ def main():
         raise SystemExit('this needs PyInstaller:\n'
                          '    pip install -e ".[package]"')
 
-    shutil.rmtree(BUILT, ignore_errors=True)
+    clear_previous()
     run([sys.executable, "-m", "PyInstaller", "--noconfirm",
          "--distpath", DIST,
          "--workpath", os.path.join(ROOT, "build"), SPEC])

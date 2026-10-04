@@ -34,7 +34,7 @@
     copy back over yours, which would undo whatever you had just added.
   </p>
   <div class="toolbar">
-    <label class="btn primary">Import a map file…<input type="file" hidden></label>
+    <label class="btn primary">Import map files…<input type="file" multiple hidden></label>
   </div>
   <div id="savepanel"></div>
 </main>
@@ -112,11 +112,19 @@ if (!packLabel()) {
   packNote.hidden = false;
 }
 
-attachIfDesktop({
+const panel = await attachIfDesktop({
   panel: document.getElementById("savepanel"),
   poster,
-  pickMap: () => null,
 });
+
+// A button the real page does not have: the harness has no file picker, so
+// this is how the staged-changes states get looked at.
+const fake = document.createElement("button");
+fake.textContent = "Queue a fake map (harness only)";
+fake.style.cssText = "position:fixed;right:14px;bottom:14px;z-index:99";
+fake.onclick = () => panel?.queue([
+  doc(14, 10, { name: "Queued Map", author: "harness" })]);
+document.body.append(fake);
 </script>
 
 </body>

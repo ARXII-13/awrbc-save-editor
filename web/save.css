@@ -126,6 +126,35 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
   cursor: default;
 }
 
+/* --- pending changes --------------------------------------------------- */
+
+/* Shown only when something is staged. The save is untouched until Save
+ * changes, so this bar is the difference between what is on disk and what
+ * is on screen, and it should be impossible to miss. */
+.commitbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 16px;
+  padding: 9px 12px;
+  border: 1px solid #3c5c8c;
+  border-radius: var(--radius);
+  background: #1b2433;
+}
+.commitbar .what { color: var(--ink); font-size: 13px; }
+.commitbar .spacer { flex: 1; }
+
+/* A card on its way out, and one on its way in. Dimmed and marked rather
+ * than hidden, because the point is to see what you have decided before
+ * committing to it. */
+.mapcard.going { opacity: .62; border-color: #4a3034; }
+.mapcard.going .thumb { filter: grayscale(.7); }
+.mapcard.coming { border-color: #3c5c8c; border-style: dashed; }
+
+.badge.going { color: #f0b5af; border-color: #4a3034; background: #3a2529; }
+.badge.coming { color: #cfe0f8; border-color: #3c5c8c; background: #223047; }
+
 /* --- the list ---------------------------------------------------------- */
 
 .listhead {
