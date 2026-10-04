@@ -18,6 +18,8 @@ by pointing the tool at a folder, which is also the answer for portable
 installs and for a save copied off a modded console.
 """
 import os
+import re
+from collections import Counter
 from dataclasses import dataclass
 from typing import Optional
 
@@ -61,6 +63,20 @@ class SaveCandidate:
     source: str = "unknown"   #: "ryujinx" | "yuzu" | "directory" | "explicit"
     size: int = 0
     emulator: Optional[str] = None   #: display name, when we recognised one
+    display: Optional[str] = None    #: set by describe(); unique in its list
+
+    @property
+    def is_slot(self) -> bool:
+        """Does this live where the emulator actually puts a save?
+
+        A real save id is sixteen hex digits. A machine turned up two extra
+        entries under `0000000000000001_backup`, a folder somebody made by
+        hand - 16 KiB beside the real saves' 4 MiB, and labelled identically.
+        Importing into one would look like it worked and the game would never
+        see the map.
+        """
+        return bool(self.save_id and re.fullmatch(r"[0-9a-fA-F]{16}",
+                                                  self.save_id))
 
     @property
     def label(self) -> str:
@@ -74,6 +90,31 @@ class SaveCandidate:
         if self.profile:
             return "%s profile %s" % (who, self.profile[:8])
         return who
+
+
+def describe(candidates: list) -> list:
+    """Give every candidate a label that tells it from the others.
+
+    Done here rather than on the candidate, because uniqueness is a property
+    of the list and no single entry can know it. One machine offered four
+    saves of which two read "Ryujinx profile 0" - the save id was the only
+    thing that differed and it was the one thing not shown.
+
+    Live slots first, hand-made copies after. Nothing is hidden: a copy is
+    still a maps file somebody may genuinely want to open, it just should
+    not sit at the top of the list pretending to be the save the game reads.
+    """
+    for c in candidates:
+        c.display = c.label if c.is_slot or c.source in ("directory",
+                                                         "explicit")             else "%s (copy)" % c.label
+
+    seen = Counter(c.display for c in candidates)
+    for c in candidates:
+        if seen[c.display] > 1 and c.save_id:
+            c.display = "%s - %s" % (c.display, c.save_id)
+
+    candidates.sort(key=lambda c: (not c.is_slot, c.display))
+    return candidates
 
 
 def _data_dirs() -> list:
@@ -181,14 +222,14 @@ def find_saves(save_dir: Optional[str] = None) -> list:
     installs and for hardware dumps in arbitrary locations.
     """
     if save_dir:
-        return from_directory(save_dir)
+        return describe(from_directory(save_dir))
     out = []
     for name, root, layout in emulator_roots():
         if layout == "yuzu":
             out.extend(scan_yuzu_root(root, emulator=name))
         else:
             out.extend(scan_ryujinx_root(root, emulator=name))
-    return out
+    return describe(out)
 
 
 def select(candidates: list, profile: Optional[str] = None) -> Optional[SaveCandidate]:

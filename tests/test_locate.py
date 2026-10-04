@@ -221,5 +221,85 @@ class KnowingTheGameIsRunning(unittest.TestCase):
         self.assertFalse(any(p in listing for p in locate.EMULATOR_PROCESSES))
 
 
+class TellingTheSavesApart(unittest.TestCase):
+    """What each save is called, once the whole list is known.
+
+    A real machine offered four, of which two read "Ryujinx profile 0" and
+    two read "Ryujinx profile 1". The save id was the only thing that
+    differed and the only thing not shown. Two of them were not saves the
+    game reads at all - they sat under `0000000000000001_backup`, a folder
+    somebody made by hand, 16 KiB against the real ones' 4 MiB. Importing
+    into one would look like it worked and the game would never see it.
+    """
+
+    def slot(self, save_id="0000000000000001", profile="0", emulator="Ryujinx"):
+        return locate.SaveCandidate(
+            path="%s/%s/maps" % (save_id, profile), save_id=save_id,
+            profile=profile, source="ryujinx", emulator=emulator)
+
+    def test_a_real_save_id_is_a_slot(self):
+        self.assertTrue(self.slot().is_slot)
+
+    def test_a_hand_made_folder_is_not(self):
+        self.assertFalse(self.slot(save_id="0000000000000001_backup").is_slot)
+
+    def test_a_short_id_is_not_a_slot_either(self):
+        self.assertFalse(self.slot(save_id="0001").is_slot)
+
+    def test_a_copy_says_so(self):
+        got = locate.describe([self.slot(save_id="0000000000000001_backup")])
+        self.assertIn("(copy)", got[0].display)
+
+    def test_a_real_slot_does_not(self):
+        got = locate.describe([self.slot()])
+        self.assertNotIn("copy", got[0].display)
+        self.assertEqual(got[0].display, "Ryujinx profile 0")
+
+    def test_two_saves_never_read_the_same(self):
+        """The bug exactly: same emulator, same profile number, different
+        save id."""
+        got = locate.describe([self.slot(save_id="0000000000000001"),
+                               self.slot(save_id="0000000000000002")])
+        self.assertEqual(len({c.display for c in got}), 2,
+                         [c.display for c in got])
+
+    def test_the_save_id_is_what_tells_them_apart(self):
+        got = locate.describe([self.slot(save_id="0000000000000001"),
+                               self.slot(save_id="0000000000000002")])
+        self.assertTrue(any("0000000000000002" in c.display for c in got),
+                        [c.display for c in got])
+
+    def test_copies_come_after_the_real_saves(self):
+        """Not hidden - somebody may genuinely want to open one - but not at
+        the top of the list pretending to be the save the game reads."""
+        got = locate.describe([
+            self.slot(save_id="0000000000000001_backup", profile="0"),
+            self.slot(save_id="0000000000000001", profile="0"),
+        ])
+        self.assertTrue(got[0].is_slot)
+        self.assertFalse(got[1].is_slot)
+
+    def test_the_four_from_a_real_machine(self):
+        """Two profiles in the live save and two in a folder copy, which is
+        what this machine actually has."""
+        got = locate.describe([
+            self.slot(save_id="0000000000000001", profile="0"),
+            self.slot(save_id="0000000000000001", profile="1"),
+            self.slot(save_id="0000000000000001_backup", profile="0"),
+            self.slot(save_id="0000000000000001_backup", profile="1"),
+        ])
+        self.assertEqual(len({c.display for c in got}), 4,
+                         [c.display for c in got])
+        self.assertEqual([c.is_slot for c in got],
+                         [True, True, False, False])
+
+    def test_a_hand_picked_folder_is_not_called_a_copy(self):
+        """It has no save id because it is not in an emulator's tree at all,
+        and that is not evidence of anything."""
+        got = locate.describe([locate.SaveCandidate(path="D:/dump/maps",
+                                                    source="directory")])
+        self.assertNotIn("copy", got[0].display)
+
+
 if __name__ == "__main__":
     unittest.main()

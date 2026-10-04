@@ -34,7 +34,7 @@ const BIG_MAX = 32;
  * `commit()`, which is one read, one backup and one write however many
  * changes are riding on it.
  */
-export function attachSaves({ panel, poster }) {
+export function attachSaves({ panel, poster, importControl }) {
   let savePath = null;
   let entries = [];
   let found = [];        // every save on this machine, not just the open one
@@ -113,20 +113,45 @@ export function attachSaves({ panel, poster }) {
    * row of one button is a decision nobody has.
    */
   function switcher() {
-    if (found.length < 2) return null;
-    const row = el('div', { className: 'saveswitch' });
+    const browse = el('button', {
+      title: 'Point at a save yourself - a folder, or the maps file',
+      textContent: 'Open a save…' });
+    browse.onclick = browseForSave;
+
+    // A row of buttons was fine for two and a mess for four, which is what
+    // a machine with two profiles and a folder copy actually produces. A
+    // list is the ordinary control for picking one of several and does not
+    // grow sideways.
+    if (found.length < 2) {
+      return el('div', { className: 'saverow' }, browse);
+    }
+
+    const pick = el('select', { className: 'savepick' });
     for (const save of found) {
-      const open_ = save.path === savePath;
-      const pick = el('button', {
-        className: open_ ? 'chip on' : 'chip',
-        title: save.path,
+      const opt = el('option', {
+        value: save.path,
         textContent: save.label || save.source || 'save',
       });
-      pick.disabled = open_;
-      pick.onclick = () => { savePath = save.path; open(save.path); };
-      row.append(pick);
+      if (save.path === savePath) opt.selected = true;
+      pick.append(opt);
     }
-    return row;
+    pick.onchange = () => {
+      const chosen = pick.value;
+      if (!chosen || chosen === savePath) return;
+      if (pending() && !confirm(
+          'You have unsaved changes. Switching saves forgets them.\n\n' +
+          'The save itself has not been touched.')) {
+        pick.value = savePath;        // put the list back where it was
+        return;
+      }
+      clearStaged();
+      savePath = chosen;
+      open(chosen);
+    };
+
+    return el('div', { className: 'saverow' },
+      el('span', { className: 'rowlabel', textContent: 'Save' }),
+      pick, browse);
   }
 
   async function open(path) {
@@ -331,11 +356,6 @@ export function attachSaves({ panel, poster }) {
           : where?.label || savePath) || '',
       }));
 
-    const browse = el('button', {
-      title: 'Point at a save yourself - a folder, or the maps file',
-      textContent: 'Open a save…' });
-    browse.onclick = browseForSave;
-
     const pickers = switcher();
     const bar = commitBar();
 
@@ -346,8 +366,12 @@ export function attachSaves({ panel, poster }) {
       : el('div', { className: 'notice',
                     textContent: 'No custom maps in this save yet.' });
 
+    // The import control belongs to the page, which knows how to read a
+    // file; it is placed here so every control sits on one row instead of
+    // the page drawing a toolbar above the panel's own.
     panel.replaceChildren(
-      el('div', { className: 'toolbar' }, takeBackup, roll, browse),
+      el('div', { className: 'toolbar' },
+         ...(importControl ? [importControl] : []), takeBackup, roll),
       ...(pickers ? [pickers] : []),
       ...(bar ? [bar] : []),
       head,

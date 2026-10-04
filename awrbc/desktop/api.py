@@ -69,7 +69,10 @@ class SaveApi:
             found.append({
                 "path": c.path, "profile": c.profile, "saveId": c.save_id,
                 "source": c.source, "size": c.size,
-                "label": getattr(c, "label", c.source),
+                # describe() set this and made it unique in the list;
+                # `label` alone repeated itself across profiles.
+                "label": c.display or c.label,
+                "isSlot": c.is_slot,
             })
         return {"ok": True, "saves": found}
 
@@ -97,7 +100,7 @@ class SaveApi:
             return {"ok": True, "cancelled": True, "saves": []}
 
         chosen = picked[0] if isinstance(picked, (list, tuple)) else picked
-        found = locate.from_directory(chosen)
+        found = locate.describe(locate.from_directory(chosen))
         if not found:
             return {"ok": False, "kind": "SaveNotFound",
                     "error": "no Advance Wars save data in %s.\n\nPick the "
@@ -105,7 +108,8 @@ class SaveApi:
                              "itself." % chosen}
         return {"ok": True, "cancelled": False, "saves": [
             {"path": c.path, "profile": c.profile, "saveId": c.save_id,
-             "source": c.source, "size": c.size, "label": c.label}
+             "source": c.source, "size": c.size,
+             "label": c.display or c.label, "isSlot": c.is_slot}
             for c in found]}
 
     @_guard

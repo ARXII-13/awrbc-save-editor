@@ -98,33 +98,47 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
+
+/* The import control is a <label> wrapping a hidden file input, so it has to
+ * line up with the real buttons beside it rather than sit on the text
+ * baseline. */
+.toolbar .btn { line-height: normal; }
 
 /* --- choosing between saves -------------------------------------------- */
 
-/* Only ever shown when there is more than one, so it does not need to
- * explain itself - two chips side by side are self-evident. */
-.saveswitch {
+/* Its own row, below the things you do to maps. Which save you are looking
+ * at is a different question from what you are doing to it, and a single row
+ * of everything made both harder to read. */
+.saverow {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  align-items: center;
   flex-wrap: wrap;
-  margin: -8px 0 18px;
+  margin: -6px 0 18px;
 }
 
-.chip {
-  font-size: 12.5px;
-  padding: 4px 10px;
-  border-radius: 999px;
+.rowlabel {
   color: var(--dim);
+  font-size: 12.5px;
 }
-.chip.on {
+
+/* A list rather than a row of buttons: four of them wrapped badly, and a
+ * machine with two profiles and a folder copy produces exactly four. */
+.savepick {
+  background: var(--raised);
   color: var(--ink);
-  border-color: #3c5c8c;
-  background: #223047;
-  opacity: 1;              /* it is disabled, but it is the selected one */
-  cursor: default;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  max-width: 100%;
+  cursor: pointer;
 }
+.savepick:hover { border-color: #434b5c; }
+.savepick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* --- pending changes --------------------------------------------------- */
 

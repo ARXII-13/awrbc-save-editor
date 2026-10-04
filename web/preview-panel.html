@@ -33,9 +33,10 @@
     properly. It keeps its own copy of the save while it runs and writes that
     copy back over yours, which would undo whatever you had just added.
   </p>
-  <div class="toolbar">
-    <label class="btn primary">Import map files…<input type="file" multiple hidden></label>
-  </div>
+  <!-- Placed by the panel, same as the real page. -->
+  <label class="btn primary" id="importcontrol" hidden>Import map files…<input
+    type="file" multiple hidden></label>
+
   <div id="savepanel"></div>
 </main>
 
@@ -92,11 +93,15 @@ globalThis.window.pywebview = { api: {
   // Two, and from different emulators, so the switcher is visible here.
   // A harness that only ever shows the simple case hides the states worth
   // looking at.
+  // Four, like the machine that showed the labels were ambiguous: two
+  // profiles in the live save and two in a folder somebody copied.
   find_saves: async () => ({ ok: true, saves: [
-    { path: "C:/fake/maps", label: "Ryujinx profile 0a1b2c3d",
+    { path: "C:/fake/0/maps", label: "Ryujinx profile 0", source: "ryujinx" },
+    { path: "C:/fake/1/maps", label: "Ryujinx profile 1", source: "ryujinx" },
+    { path: "C:/fake/b0/maps", label: "Ryujinx profile 0 (copy)",
       source: "ryujinx" },
-    { path: "D:/fake/sudachi/maps", label: "Sudachi profile 9f8e7d6c",
-      source: "yuzu" },
+    { path: "C:/fake/b1/maps", label: "Ryujinx profile 1 (copy)",
+      source: "ryujinx" },
   ] }),
   open_save: async () => ({ ok: true, maps: MAPS }),
   remove_map: async () => ({ ok: true }),
@@ -112,9 +117,13 @@ if (!packLabel()) {
   packNote.hidden = false;
 }
 
+const importControl = document.getElementById("importcontrol");
+importControl.hidden = false;
+
 const panel = await attachIfDesktop({
   panel: document.getElementById("savepanel"),
   poster,
+  importControl,
 });
 
 // A button the real page does not have: the harness has no file picker, so

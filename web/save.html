@@ -40,15 +40,16 @@
     copy back over yours, which would undo whatever you had just added.
   </p>
 
-  <div class="toolbar">
-    <label class="btn primary"
-           title="One or more map .json files - they queue up until you save">
-      Import map files…
-      <!-- More than one, because clearing out a save and refilling it is
-           one job, not six. They queue up and go in together. -->
-      <input id="mapfile" type="file" accept=".json,.zip" multiple hidden>
-    </label>
-  </div>
+  <!-- Not drawn here. The panel places it in its own toolbar so every
+       control sits on one row; the page keeps it because reading a file is
+       the page's job, not the panel's. -->
+  <label class="btn primary" id="importcontrol" hidden
+         title="One or more map .json files - they queue up until you save">
+    Import map files…
+    <!-- More than one, because clearing out a save and refilling it is one
+         job, not six. They queue up and go in together. -->
+    <input id="mapfile" type="file" accept=".json,.zip" multiple hidden>
+  </label>
 
   <div id="savepanel"></div>
 </main>
@@ -89,9 +90,13 @@ async function chosen(file) {
 
 const input = document.getElementById("mapfile");
 
+const importControl = document.getElementById("importcontrol");
+importControl.hidden = false;
+
 const panel = attachIfDesktop({
   panel: document.getElementById("savepanel"),
   poster: (doc, tile) => poster(doc, tile || PREVIEW_TILE),
+  importControl,
 });
 
 input.onchange = async () => {

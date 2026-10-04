@@ -653,8 +653,7 @@ describe('looking at a map full size', () => {
 describe('choosing between saves', () => {
   const two = {
     find_saves: async () => ({ ok: true, saves: [
-      { path: 'C:/ryu/maps', label: 'Ryujinx profile 00000000',
-        source: 'ryujinx' },
+      { path: 'C:/ryu/maps', label: 'Ryujinx profile 0', source: 'ryujinx' },
       { path: 'C:/yuzu/maps', label: 'Sudachi profile abcdef01',
         source: 'yuzu' },
     ] }),
@@ -662,58 +661,118 @@ describe('choosing between saves', () => {
 
   const one = {
     find_saves: async () => ({ ok: true, saves: [
-      { path: 'C:/ryu/maps', label: 'Ryujinx profile 00000000' }] }),
+      { path: 'C:/ryu/maps', label: 'Ryujinx profile 0' }] }),
   };
 
-  it('offers a button for each when there is a choice', async () => {
+  const picker = (p) => byClass(p.panel, 'savepick')[0];
+
+  it('lists every save it found', async () => {
     const p = panelOver(two);
     await p.api.refresh();
-    const chips = byClass(p.panel, 'chip');
-    assert.equal(chips.length, 2);
-    assert.deepEqual(chips.map(text),
-                     ['Ryujinx profile 00000000', 'Sudachi profile abcdef01']);
+    const list = picker(p);
+    assert.ok(list, 'there should be a picker when there is a choice');
+    assert.deepEqual(list.children.map(text),
+                     ['Ryujinx profile 0', 'Sudachi profile abcdef01']);
   });
 
-  it('offers nothing to choose when there is only one save', async () => {
-    // A row of one button is a decision nobody has.
+  it('is a list, not a row of buttons', async () => {
+    // Four of them wrapped badly, and two profiles plus a folder copy makes
+    // exactly four on a real machine.
+    const p = panelOver(two);
+    await p.api.refresh();
+    assert.equal(picker(p).tag, 'select');
+  });
+
+  it('offers no picker when there is only one save', async () => {
     const p = panelOver(one);
     await p.api.refresh();
-    assert.equal(byClass(p.panel, 'saveswitch').length, 0);
+    assert.equal(byClass(p.panel, 'savepick').length, 0);
   });
 
-  it('marks the open one and does not offer to re-open it', async () => {
+  it('still offers to open one by hand when there is only one', async () => {
+    // The whole point of browsing: the save that was not found.
+    const p = panelOver(one);
+    await p.api.refresh();
+    assert.ok(byText(p.panel, 'Open a save…'), 'browse should always be there');
+  });
+
+  it('marks the open one as selected', async () => {
     const p = panelOver(two);
     await p.api.refresh();
-    const [first, second] = byClass(p.panel, 'chip');
-    assert.ok(String(first.className).includes('on'));
-    assert.equal(first.disabled, true);
-    assert.equal(second.disabled, false);
+    const [first, second] = picker(p).children;
+    assert.equal(first.selected, true);
+    assert.notEqual(second.selected, true);
   });
 
-  it('opens the other one when its button is pressed', async () => {
+  it('opens the other one when it is chosen', async () => {
     const opened = [];
     const p = panelOver({
       ...two,
-      open_save: async (path) => { opened.push(path); return { ok: true, maps: [] }; },
+      open_save: async (path) => {
+        opened.push(path);
+        return { ok: true, maps: [] };
+      },
     });
     await p.api.refresh();
-    byClass(p.panel, 'chip')[1].onclick();
+    const list = picker(p);
+    list.value = 'C:/yuzu/maps';
+    list.onchange();
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(opened.at(-1), 'C:/yuzu/maps');
   });
 
-  it('names the open save above the list when there is no switcher',
+  it('does not reopen the save already open', async () => {
+    const opened = [];
+    const p = panelOver({
+      ...two,
+      open_save: async (path) => {
+        opened.push(path);
+        return { ok: true, maps: [] };
+      },
+    });
+    await p.api.refresh();
+    const before = opened.length;
+    const list = picker(p);
+    list.value = 'C:/ryu/maps';
+    list.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(opened.length, before);
+  });
+
+  it('asks before switching away from unsaved changes', async () => {
+    // Switching rebuilds the list from the other save, so anything staged
+    // against this one is gone.
+    const opened = [];
+    const p = panelOver({
+      ...two,
+      open_save: async (path) => {
+        opened.push(path);
+        return { ok: true, maps: [] };
+      },
+    }, { confirms: [false] });
+    await p.api.refresh();
+    p.api.queue([{ name: 'Pending', size: { cols: 8, rows: 8 } }]);
+
+    const before = opened.length;
+    const list = picker(p);
+    list.value = 'C:/yuzu/maps';
+    list.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(opened.length, before, 'it should not have switched');
+  });
+
+  it('names the open save above the list when there is no picker',
      async () => {
     const p = panelOver(one);
     await p.api.refresh();
     const sub = byClass(p.panel, 'listhead')[0].children[1];
-    assert.equal(text(sub), 'Ryujinx profile 00000000');
+    assert.equal(text(sub), 'Ryujinx profile 0');
     assert.equal(sub.title, 'C:/ryu/maps', 'the path is still reachable');
   });
 
-  it('shows the path there instead once the switcher says which save',
+  it('shows the path there instead once the picker says which save',
      async () => {
-    // The selected chip already names it; repeating it wastes the line.
+    // The picker already names it; repeating it wastes the line.
     const p = panelOver(two);
     await p.api.refresh();
     const sub = byClass(p.panel, 'listhead')[0].children[1];
