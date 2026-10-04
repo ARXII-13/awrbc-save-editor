@@ -5,6 +5,7 @@ anything in the yuzu family, or off a modded console through JKSV - and the
 one thing it must never do is only work for the emulator it was written on.
 """
 import os
+import shutil
 import tempfile
 import unittest
 import unittest.mock
@@ -299,6 +300,68 @@ class TellingTheSavesApart(unittest.TestCase):
         got = locate.describe([locate.SaveCandidate(path="D:/dump/maps",
                                                     source="directory")])
         self.assertNotIn("copy", got[0].display)
+
+
+class ASaveCopiedOffAConsole(unittest.TestCase):
+    """What somebody with a Switch actually has in front of them.
+
+    Measured against a real console over USB. The save sits at
+    `Switch\\7: Saves\\Installed games\\Advance Wars 1+2 Re-Boot Camp\\<user>\\
+    SaveData`, and holds `gameState` and `gameStateBackup` - and no `maps`,
+    because that profile had never made a custom map. The game allocates
+    `maps` only when there is one to put in it.
+
+    So "no Advance Wars save data here" is both true and useless: they are
+    looking at the right folder.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def console_save(self, with_maps=False, nested=True):
+        """A copy of what the console actually holds."""
+        root = os.path.join(self.tmp, "ARX II-13")
+        where = os.path.join(root, "SaveData") if nested else root
+        os.makedirs(where, exist_ok=True)
+        for name in ("gameState", "gameStateBackup"):
+            with open(os.path.join(where, name), "wb") as fh:
+                fh.write(b"\0" * 1015808)
+        if with_maps:
+            with open(os.path.join(where, "maps"), "wb") as fh:
+                fh.write(b"\0" * 16384)
+        return root
+
+    def test_a_console_save_without_maps_is_still_a_save_folder(self):
+        self.assertTrue(locate.is_save_folder(self.console_save()))
+
+    def test_it_is_recognised_without_the_savedata_wrapper(self):
+        """JKSV and Checkpoint dump the contents, not the folder above."""
+        self.assertTrue(locate.is_save_folder(
+            self.console_save(nested=False)))
+
+    def test_a_folder_of_something_else_is_not(self):
+        other = os.path.join(self.tmp, "photos")
+        os.makedirs(other)
+        with open(os.path.join(other, "holiday.jpg"), "wb") as fh:
+            fh.write(b"x")
+        self.assertFalse(locate.is_save_folder(other))
+
+    def test_an_empty_folder_is_not(self):
+        empty = os.path.join(self.tmp, "empty")
+        os.makedirs(empty)
+        self.assertFalse(locate.is_save_folder(empty))
+
+    def test_a_path_that_is_not_there_is_not(self):
+        self.assertFalse(locate.is_save_folder(
+            os.path.join(self.tmp, "nowhere")))
+        self.assertFalse(locate.is_save_folder(""))
+
+    def test_once_the_maps_file_exists_it_is_found_normally(self):
+        """The whole point of the message: come back when you have one."""
+        root = self.console_save(with_maps=True)
+        found = locate.from_directory(root)
+        self.assertEqual([os.path.basename(c.path) for c in found], ["maps"])
 
 
 if __name__ == "__main__":

@@ -100,8 +100,29 @@ class SaveApi:
             return {"ok": True, "cancelled": True, "saves": []}
 
         chosen = picked[0] if isinstance(picked, (list, tuple)) else picked
+
+        # A Switch connected by USB appears in Explorer as a portable device
+        # rather than a drive. Its items carry shell ids, not paths, and
+        # nothing that opens a file can use one. Worth saying plainly: "no
+        # save data here" is a baffling answer about a folder you can see.
+        if not os.path.exists(chosen):
+            return {"ok": False, "kind": "NotAFolder",
+                    "error": "%s is not a folder this tool can read.\n\n"
+                             "A Switch connected by USB is a portable "
+                             "device, not a drive, and files on it cannot be "
+                             "opened directly. Copy the save folder to your "
+                             "PC first, then choose the copy." % chosen}
+
         found = locate.describe(locate.from_directory(chosen))
         if not found:
+            if locate.is_save_folder(chosen):
+                return {"ok": False, "kind": "NoMapsYet",
+                        "error": "%s is an Advance Wars save, but the game "
+                                 "has not made a maps file in it yet.\n\n"
+                                 "That file appears once the save holds a "
+                                 "custom map. Make one in the Design Room on "
+                                 "the console, save it, then copy the folder "
+                                 "across again." % chosen}
             return {"ok": False, "kind": "SaveNotFound",
                     "error": "no Advance Wars save data in %s.\n\nPick the "
                              "folder holding the 'maps' file, or that file "

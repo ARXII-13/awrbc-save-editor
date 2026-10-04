@@ -92,6 +92,29 @@ class SaveCandidate:
         return who
 
 
+#: Files the game writes beside `maps`. Their presence says "this is an
+#: Advance Wars save folder" even when `maps` is absent - which is the normal
+#: state of a profile that has never made a custom map, because the game only
+#: allocates `maps` once there is one to put in it.
+GAME_STATE = ("gameState", "gameStateBackup")
+
+
+def is_save_folder(path: str) -> bool:
+    """Does this look like the game's save folder, maps file or not?
+
+    Worth telling apart from "not a save at all": a console save copied off a
+    Switch by somebody who has never opened the Design Room has gameState and
+    gameStateBackup and nothing else, and "no save data here" is both true
+    and useless to them.
+    """
+    if not path or not os.path.isdir(path):
+        return False
+    here = path
+    if os.path.isdir(os.path.join(path, "SaveData")):
+        here = os.path.join(path, "SaveData")
+    return any(os.path.isfile(os.path.join(here, n)) for n in GAME_STATE)
+
+
 def describe(candidates: list) -> list:
     """Give every candidate a label that tells it from the others.
 
