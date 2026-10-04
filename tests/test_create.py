@@ -73,6 +73,15 @@ class TheFileItMakes(unittest.TestCase):
         _doc, size = through_a_created_file([a_map()])
         self.assertGreaterEqual(size, create.MIN_FILE_SIZE)
 
+    def test_it_is_a_power_of_two_like_every_save_the_game_writes(self):
+        """16 KiB doubling until it fits. A big document was being left at
+        its own length, which is not a size any real save has."""
+        for maps in ([a_map()], [a_map() for _ in range(40)]):
+            _doc, size = through_a_created_file(maps)
+            self.assertEqual(size & (size - 1), 0,
+                             "%d is not a power of two" % size)
+            self.assertGreaterEqual(size, create.MIN_FILE_SIZE)
+
     def test_it_holds_several_maps_in_order(self):
         doc, _ = through_a_created_file(
             [a_map(name="One"), a_map(name="Two"), a_map(name="Three")])

@@ -317,5 +317,11 @@ def build_document(maps, creator=None) -> bytes:
     parser = Parser(b"")
     parser.records = b.records
     stream = nrbf_write(parser)
-    pad = MIN_FILE_SIZE - len(stream)
-    return stream + b"\0" * (pad if pad > 0 else 0)
+
+    # Padded the way the game pads: powers of two from 16 KiB up. Borrowed
+    # from savefile rather than restated, because a second copy of the rule
+    # is a thing to get wrong - and the first version of this did get it
+    # wrong, padding only to the 16 KiB floor and leaving a 455 KiB document
+    # at its own length, which is not a size any save the game wrote has.
+    from .savefile import _file_size_for
+    return stream + b"\0" * (_file_size_for(len(stream), None) - len(stream))
