@@ -19,6 +19,7 @@ import os
 
 #: Modules the save editor genuinely needs.
 #:
+#:   save.css    how it looks; shared with the development harness
 #:   render.js   draws a map - the whole reason any of this is shared
 #:   terrain.js  the tile table render.js reads
 #:   sprites.js  loads the sprite pack render.js draws with
@@ -26,6 +27,7 @@ import os
 #:   save-ui.js  the panel itself
 ALLOWED = (
     "save.html",
+    "save.css",
     "render.js",
     "terrain.js",
     "sprites.js",

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
 import {
-  available, describe as describeMap, findSaves, importMap, openSave, ready,
+  available, findSaves, importMap, openSave, ready,
   removeMap,
 } from '../saves.js';
 
@@ -105,28 +105,3 @@ describe('calling across', () => {
   });
 });
 
-describe('describing a map for the list', () => {
-  const entry = (derived, size = { cols: 30, rows: 20 }, playable = true) => ({
-    derived, document: { size }, playable,
-  });
-
-  it('leads with players and size', () => {
-    assert.equal(describeMap(entry({ players: 4 })), '4p, 30x20');
-  });
-
-  it('adds the facts that are true', () => {
-    const text = describeMap(entry({ players: 2, navy: true, fog: true }));
-    assert.match(text, /navy/);
-    assert.match(text, /fog/);
-    assert.doesNotMatch(text, /predeployed/);
-  });
-
-  it('says when a map will not play', () => {
-    assert.match(describeMap(entry({ players: 1 }, { cols: 8, rows: 8 }, false)),
-                 /not playable/);
-  });
-
-  it('copes with a map that carries no derived block', () => {
-    assert.doesNotThrow(() => describeMap({ document: {} }));
-  });
-});

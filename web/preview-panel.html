@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Save panel preview</title>
+<!--
+  A development harness, not part of the app.
+
+  The save panel only appears when `window.pywebview.api` exists, which means
+  the only way to look at it is to run the packaged app against a real save -
+  a slow loop for working on how it looks, and impossible to screenshot from a
+  script. This fakes the bridge with a handful of made-up maps so the panel can
+  be opened in any browser.
+
+  tools/desktop_payload.py decides what ships, and this file is not on that
+  list, so it cannot reach a build.
+-->
+<link rel="stylesheet" href="save.css">
+</head>
+<body>
+
+<header>
+  <h1>Advance Wars 1+2 — save maps</h1>
+  <span class="sub" id="packlabel"></span>
+</header>
+
+<main>
+  <p class="sub lead">
+    Maps in your Ryujinx save. A backup is taken before every write, and
+    writing is refused while the game is running.
+  </p>
+  <div class="toolbar">
+    <label class="btn primary">Import a map file…<input type="file" hidden></label>
+  </div>
+  <div id="savepanel"></div>
+</main>
+
+<script type="module">
+import { poster } from "./render.js";
+import { loadPack, packLabel } from "./sprites.js";
+import { attachIfDesktop } from "./save-ui.js";
+
+/** A map document with enough terrain to draw something recognisable. */
+function doc(cols, rows, { name, author, fog = false, units = [] } = {}) {
+  const terrain = Array.from({ length: rows }, (_, y) =>
+    Array.from({ length: cols }, (_, x) => {
+      if (y === 0 || y === rows - 1) return 2;              // sea along the top and bottom
+      if (x === Math.floor(cols / 2)) return 16;            // a river down the middle
+      if (y === Math.floor(rows / 2)) return 128;           // a road across
+      return ((x * 7 + y * 3) % 11 === 0) ? 8 : 1;          // woods scattered on plains
+    }));
+  terrain[1][1] = 512; terrain[rows - 2][cols - 2] = 512;   // HQs
+  terrain[2][1] = 2048; terrain[rows - 3][cols - 2] = 2048; // bases
+  terrain[2][4] = 1024; terrain[rows - 3][cols - 5] = 1024; // cities
+  return {
+    schema: 1, name, author, fog, waterColor: 0,
+    size: { cols, rows }, terrain,
+    cells: [
+      { x: 1, y: 1, team: 0, capture: 20 },
+      { x: cols - 2, y: rows - 2, team: 1, capture: 20 },
+      { x: 1, y: 2, team: 0, capture: 20 },
+      { x: cols - 2, y: rows - 3, team: 1, capture: 20 },
+      { x: 4, y: 2, team: -1, capture: 20 },
+      { x: cols - 5, y: rows - 3, team: -1, capture: 20 },
+    ],
+    units,
+  };
+}
+
+const MAPS = [
+  { index: 0, slot: 1, name: "Twin Rivers", playable: true,
+    derived: { players: 2, fog: false, navy: true, structures: false },
+    document: doc(30, 20, { name: "Twin Rivers", author: "debbie" }) },
+  { index: 1, slot: 2, name: "Renew", playable: true,
+    derived: { players: 4, fog: true, predeployed: true, navy: false },
+    document: doc(31, 21, { name: "Renew", author: "yoyo", fog: true,
+                            units: [{ x: 3, y: 3, team: 0, type: 1, hp: 100 }] }) },
+  { index: 2, slot: 3, name: "", playable: false,
+    derived: { players: 1 },
+    document: doc(12, 10, { name: "", author: "" }) },
+  { index: 3, slot: 4, name: "A Very Long Map Name That Should Wrap Nicely",
+    playable: true, derived: { players: 3, structures: true },
+    document: doc(40, 24, { name: "A Very Long Map Name That Should Wrap Nicely",
+                            author: "somebody-with-a-long-handle" }) },
+];
+
+globalThis.window.pywebview = { api: {
+  find_saves: async () => ({ ok: true, saves: [{ path: "C:/fake/maps" }] }),
+  open_save: async () => ({ ok: true, maps: MAPS }),
+  remove_map: async () => ({ ok: true }),
+  snapshots: async () => ({ ok: true, snapshots: [] }),
+  backup_now: async () => ({ ok: true, name: "maps-2026-10-03.bak" }),
+} };
+
+await loadPack();
+document.getElementById("packlabel").textContent =
+  packLabel() ? "sprites: " + packLabel() : "no sprite pack";
+
+attachIfDesktop({
+  panel: document.getElementById("savepanel"),
+  poster,
+  pickMap: () => null,
+});
+</script>
+
+</body>
+</html>

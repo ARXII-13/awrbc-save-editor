@@ -86,6 +86,84 @@ function panelOver(api, { confirms = [], prompts = [], pickMap } = {}) {
   return { panel, api: api_, asked, alerts };
 }
 
+/** Every node carrying this class, depth first. */
+function byClass(root, wanted) {
+  const out = [];
+  const walk = (n) => {
+    if (!n || typeof n !== 'object') return;
+    if (String(n.className || '').split(' ').includes(wanted)) out.push(n);
+    for (const kid of n.children ?? []) walk(kid);
+  };
+  walk(root);
+  return out;
+}
+
+const text = (n) => String(n?.textContent ?? '');
+
+describe('each map as a card', () => {
+  const twoMaps = {
+    open_save: async () => ({ ok: true, maps: [
+      { index: 0, name: 'Daibi', playable: true,
+        derived: { players: 2, fog: true },
+        document: { size: { cols: 30, rows: 20 }, author: 'debbie' } },
+      { index: 1, name: '', playable: false,
+        derived: { players: 1 },
+        document: { size: { cols: 12, rows: 10 }, author: '' } },
+    ] }),
+  };
+
+  it('draws one card per map, not a run of rows', async () => {
+    const p = panelOver(twoMaps);
+    await p.api.refresh();
+    assert.equal(byClass(p.panel, 'mapcard').length, 2);
+    assert.equal(byClass(p.panel, 'maplist').length, 1);
+  });
+
+  it('gives each card a picture, a name and an author', async () => {
+    const p = panelOver(twoMaps);
+    await p.api.refresh();
+    const first = byClass(p.panel, 'mapcard')[0];
+    assert.equal(byClass(first, 'thumb').length, 1, 'somewhere for the map');
+    assert.equal(text(byClass(first, 'name')[0]), 'Daibi');
+    assert.match(text(byClass(first, 'by')[0]), /debbie/);
+  });
+
+  it('says Untitled rather than leaving the name blank', async () => {
+    // A blank line reads as a rendering fault; "Untitled" reads as a map
+    // nobody got round to naming.
+    const p = panelOver(twoMaps);
+    await p.api.refresh();
+    const second = byClass(p.panel, 'mapcard')[1];
+    assert.equal(text(byClass(second, 'name')[0]), 'Untitled');
+    assert.match(text(byClass(second, 'by')[0]), /no author/);
+  });
+
+  it('shows the facts as badges, from what Python derived', async () => {
+    const p = panelOver(twoMaps);
+    await p.api.refresh();
+    const said = byClass(byClass(p.panel, 'mapcard')[0], 'badge').map(text);
+    assert.ok(said.includes('2p'), said.join(' | '));
+    assert.ok(said.includes('30×20'));
+    assert.ok(said.includes('fog'));
+  });
+
+  it('marks an unplayable map, and only that one', async () => {
+    const p = panelOver(twoMaps);
+    await p.api.refresh();
+    const cards = byClass(p.panel, 'mapcard');
+    const warned = (c) => byClass(c, 'warn').map(text).join(' ');
+    assert.equal(warned(cards[0]), '');
+    assert.match(warned(cards[1]), /not playable/);
+  });
+
+  it('says so plainly when the save holds no maps', async () => {
+    const p = panelOver({ open_save: async () => ({ ok: true, maps: [] }) });
+    await p.api.refresh();
+    assert.equal(byClass(p.panel, 'mapcard').length, 0);
+    assert.match(text(byClass(p.panel, 'notice')[0]), /No custom maps/);
+  });
+});
+
 describe('the panel', () => {
   it('draws the maps and the controls without throwing', async () => {
     const p = panelOver({});

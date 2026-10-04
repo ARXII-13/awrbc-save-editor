@@ -36,7 +36,28 @@ export function attachSaves({ panel, poster, pickMap }) {
 
   function say(message, isError = false) {
     panel.replaceChildren(el('div', {
-      className: isError ? 'sub no' : 'sub', textContent: message }));
+      className: isError ? 'notice no' : 'notice', textContent: message }));
+  }
+
+  /**
+   * The facts worth showing about a map, as badges.
+   *
+   * Built from `derived`, which Python computed from the map itself rather
+   * than from anything it claims about itself. "Not playable" comes last and
+   * is coloured, because it is the one that changes what you would do next.
+   */
+  function facts(entry) {
+    const d = entry.derived ?? {};
+    const size = entry.document?.size ?? {};
+    const out = [
+      { text: `${d.players ?? 0}p`, kind: 'key' },
+      { text: `${size.cols ?? '?'}×${size.rows ?? '?'}`, kind: 'key' },
+    ];
+    for (const k of ['fog', 'navy', 'predeployed', 'structures']) {
+      if (d[k]) out.push({ text: k, kind: '' });
+    }
+    if (!entry.playable) out.push({ text: 'not playable', kind: 'warn' });
+    return out;
   }
 
   async function refresh() {
@@ -60,45 +81,66 @@ export function attachSaves({ panel, poster, pickMap }) {
     render();
   }
 
+  /** One map, as a card: picture, what it is, and what you can do to it. */
+  function card(entry, i) {
+    const canvas = poster(entry.document, THUMB);
+
+    // No "Open": there is nothing here to open a map into. Editing lives in
+    // the map editor, which this tool is deliberately not.
+    const drop = el('button', {
+      className: 'danger', title: 'Remove this map from the save',
+      textContent: 'Remove' });
+    drop.onclick = () => removeAt(i);
+
+    const author = (entry.document?.author || '').trim();
+    const named = (entry.name || '').trim();
+
+    return el('div', { className: 'mapcard' },
+      el('div', { className: 'thumb' }, canvas),
+      el('div', { className: 'meta' },
+        el('div', {
+          className: named ? 'name' : 'name unnamed',
+          textContent: named || 'Untitled',
+        }),
+        el('div', {
+          className: author ? 'by' : 'by anon',
+          textContent: author ? 'by ' + author : 'no author',
+        }),
+        el('div', { className: 'facts' },
+          ...facts(entry).map((f) => el('span', {
+            className: f.kind ? 'badge ' + f.kind : 'badge',
+            textContent: f.text,
+          })))),
+      el('div', { className: 'cardactions' }, drop));
+  }
+
   function render() {
-    const rows = entries.map((entry, i) => {
-      const canvas = poster(entry.document, THUMB);
-      canvas.style.cssText =
-        'width:100%;image-rendering:pixelated;border-radius:3px';
-
-      // No "Open": there is nothing here to open a map into. Editing lives in
-      // the map editor, which this tool is deliberately not.
-      const drop = el('button', {
-        className: 'cellbtn', title: 'Remove this map from the save',
-        textContent: 'Remove' });
-      drop.onclick = () => removeAt(i);
-
-      return el('div', { className: 'row', style:
-        'display:block;border-top:1px solid var(--line);padding:6px 0' },
-        canvas,
-        el('div', { className: 'sub',
-                    textContent: `${entry.name || '(unnamed)'} — ` +
-                                 saves.describe(entry) }),
-        el('div', {}, drop));
-    });
-
     // Every write here takes a backup of its own, so these are for the times
     // that is not enough: before a run of edits, and after one went wrong.
-    const takeBackup = el('button', { className: 'cellbtn',
+    const takeBackup = el('button', {
       title: 'Copy this save somewhere safe, right now',
       textContent: 'Back up now' });
     takeBackup.onclick = backupNow;
 
-    const roll = el('button', { className: 'cellbtn',
+    const roll = el('button', {
       title: 'Put an earlier copy of this save back',
       textContent: 'Restore…' });
     roll.onclick = restorePrompt;
 
+    const count = entries.length;
+    const head = el('div', { className: 'listhead' },
+      el('h2', { textContent: count === 1 ? '1 map in this save'
+                                          : `${count} maps in this save` }),
+      el('span', { className: 'sub', textContent: savePath || '' }));
+
     panel.replaceChildren(
-      el('div', { className: 'sub', textContent:
-        `${entries.length} map${entries.length === 1 ? '' : 's'} in this save` }),
-      el('div', {}, takeBackup, roll),
-      ...rows);
+      el('div', { className: 'toolbar' }, takeBackup, roll),
+      head,
+      count
+        ? el('div', { className: 'maplist' },
+             ...entries.map((entry, i) => card(entry, i)))
+        : el('div', { className: 'notice',
+                      textContent: 'No custom maps in this save yet.' }));
   }
 
   async function backupNow() {

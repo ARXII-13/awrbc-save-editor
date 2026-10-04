@@ -58,19 +58,3 @@ export const snapshots = (path) => call('snapshots', path);
 export const backupNow = (path) => call('backup_now', path);
 export const restore = (path, name) => call('restore', path, name);
 
-/**
- * A one-line description of a map in a save, for a list.
- *
- * Built from the derived block rather than from anything stored, so it cannot
- * disagree with the map it describes.
- */
-export function describe(entry) {
-  const d = entry.derived ?? {};
-  const size = entry.document?.size ?? {};
-  const bits = [`${d.players ?? 0}p`, `${size.cols}x${size.rows}`];
-  for (const k of ['predeployed', 'navy', 'structures', 'fog']) {
-    if (d[k]) bits.push(k);
-  }
-  if (!entry.playable) bits.push('not playable');
-  return bits.join(', ');
-}

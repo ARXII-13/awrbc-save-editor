@@ -19,35 +19,7 @@
   Maps come from somewhere else - the hosted editor, a friend, the archive -
   as a .json or an Export bundle .zip, and get imported from a file here.
 -->
-<style>
-  :root {
-    --bg: #15171c; --panel: #1c1f26; --line: #2c313b;
-    --ink: #e7e9ee; --dim: #9aa3b2; --bad: #e0695f;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
-  }
-  header {
-    padding: 14px 18px; border-bottom: 1px solid var(--line);
-    display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
-  }
-  h1 { font-size: 15px; margin: 0; font-weight: 600; }
-  .sub { color: var(--dim); font-size: 12px; }
-  main { padding: 18px; max-width: 560px; }
-  button, .btn {
-    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
-    border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer;
-  }
-  button:hover, .btn:hover { border-color: #3d4452; }
-  button:disabled { opacity: .5; cursor: default; }
-  .cellbtn { margin-right: 6px; margin-top: 6px; }
-  .no { color: var(--bad); }
-  #savepanel { margin-top: 10px; }
-  .row { display: block; border-top: 1px solid var(--line); padding: 8px 0; }
-  canvas { image-rendering: pixelated; }
-</style>
+<link rel="stylesheet" href="save.css">
 </head>
 <body>
 
@@ -57,15 +29,18 @@
 </header>
 
 <main>
-  <p class="sub">
+  <p class="sub lead">
     Maps in your Ryujinx save. A backup is taken before every write, and
     writing is refused while the game is running.
   </p>
 
-  <label class="btn" title="A map .json, or an Export bundle .zip from the editor">
-    Import a map file…
-    <input id="mapfile" type="file" accept=".json,.zip" hidden>
-  </label>
+  <div class="toolbar">
+    <label class="btn primary"
+           title="A map .json, or an Export bundle .zip from the editor">
+      Import a map file…
+      <input id="mapfile" type="file" accept=".json,.zip" hidden>
+    </label>
+  </div>
 
   <div id="savepanel"></div>
 </main>
