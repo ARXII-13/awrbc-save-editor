@@ -18,11 +18,45 @@ import { attachSaves } from '../save-ui.js';
 function node(tag = 'div') {
   const self = {
     tag, children: [], style: {}, className: '', textContent: '', title: '',
-    hidden: false, onclick: null,
-    append(...kids) { self.children.push(...kids); },
-    replaceChildren(...kids) { self.children = [...kids]; },
+    hidden: false, onclick: null, parent: null, focused: false,
+    append(...kids) {
+      for (const kid of kids) { if (kid && kid.tag) kid.parent = self; }
+      self.children.push(...kids);
+    },
+    replaceChildren(...kids) {
+      for (const kid of kids) { if (kid && kid.tag) kid.parent = self; }
+      self.children = [...kids];
+    },
+    // The overlay takes itself off the page again, so the stub has to be
+    // able to say whether it is still there.
+    remove() {
+      const owner = self.parent;
+      if (!owner) return;
+      owner.children = owner.children.filter((k) => k !== self);
+      self.parent = null;
+    },
+    focus() { self.focused = true; },
   };
   return self;
+}
+
+/**
+ * A document stub that holds a body and remembers key handlers.
+ *
+ * The overlay listens for Escape and has to stop listening when it closes;
+ * a listener left behind would close the *next* overlay the moment it opens.
+ */
+function fakeDocument() {
+  const body = node('body');
+  const keys = new Set();
+  return {
+    body,
+    createElement: (tag) => node(tag),
+    addEventListener(kind, fn) { if (kind === 'keydown') keys.add(fn); },
+    removeEventListener(kind, fn) { if (kind === 'keydown') keys.delete(fn); },
+    press(key) { for (const fn of [...keys]) fn({ key }); },
+    listening: () => keys.size,
+  };
 }
 
 /** Every button in the tree, depth first. */
@@ -67,7 +101,8 @@ const A_MAP = {
 function panelOver(api, { confirms = [], prompts = [], pickMap } = {}) {
   const asked = [];
   const alerts = [];
-  global_('document', { createElement: (tag) => node(tag) });
+  const doc = fakeDocument();
+  global_('document', doc);
   global_('window', { pywebview: { api: {
     find_saves: async () => ({ ok: true, saves: [{ path: 'C:/save/maps' }] }),
     open_save: async () => ({ ok: true, maps: [A_MAP] }),
@@ -80,10 +115,11 @@ function panelOver(api, { confirms = [], prompts = [], pickMap } = {}) {
   const panel = node();
   const api_ = attachSaves({
     panel,
-    poster: () => ({ style: {}, width: 1, height: 1 }),
+    poster: (doc_, tile) => ({ tag: 'canvas', style: {}, children: [],
+                              tile, width: 1, height: 1 }),
     pickMap: pickMap ?? (() => null),
   });
-  return { panel, api: api_, asked, alerts };
+  return { panel, api: api_, asked, alerts, doc };
 }
 
 /** Every node carrying this class, depth first. */
@@ -327,5 +363,129 @@ describe('restoring', () => {
     await p.api.refresh();
     await byText(p.panel, 'Restore…').onclick();
     assert.equal(called, false);
+  });
+});
+
+describe('looking at a map full size', () => {
+  const bigAndSmall = {
+    open_save: async () => ({ ok: true, maps: [
+      { index: 0, name: 'Daibi', playable: true, derived: { players: 2 },
+        document: { size: { cols: 30, rows: 20 }, author: 'debbie' } },
+    ] }),
+  };
+
+  const open = (where) => byClass(where.doc.body, 'lightbox');
+
+  it('opens when the picture is clicked', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    assert.equal(open(it_).length, 0, 'nothing is open to begin with');
+
+    byClass(it_.panel, 'thumb')[0].onclick();
+    assert.equal(open(it_).length, 1);
+  });
+
+  it('is a button, so a keyboard can reach it', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    const thumb = byClass(it_.panel, 'thumb')[0];
+    assert.equal(thumb.tag, 'button');
+    assert.match(thumb.title, /bigger/i);
+  });
+
+  it('draws the map larger than the thumbnail does', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    const small = byClass(it_.panel, 'thumb')[0].children[0];
+
+    byClass(it_.panel, 'thumb')[0].onclick();
+    const big = byClass(it_.doc.body, 'bigframe')[0].children[0];
+    assert.ok(big.tile > small.tile,
+              `the big one should use a bigger tile: ${big.tile} vs ${small.tile}`);
+  });
+
+  it('never blows the sprites up past twice their size', async () => {
+    // A tiny map on a huge screen would otherwise be upscaled into blur.
+    const tiny = { open_save: async () => ({ ok: true, maps: [
+      { index: 0, name: 'Pocket', playable: true, derived: { players: 2 },
+        document: { size: { cols: 2, rows: 2 }, author: 'd' } }] }) };
+    const it_ = panelOver(tiny);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    const big = byClass(it_.doc.body, 'bigframe')[0].children[0];
+    assert.ok(big.tile <= 32, `tile was ${big.tile}`);
+  });
+
+  it('names the map it is showing', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    const caption = byClass(it_.doc.body, 'bigcaption')[0];
+    assert.equal(text(caption.children[0]), 'Daibi');
+    assert.equal(text(caption.children[1]), 'by debbie');
+  });
+
+  it('closes on the button', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    byClass(it_.doc.body, 'bigshut')[0].onclick();
+    assert.equal(open(it_).length, 0);
+  });
+
+  it('closes on Escape', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    it_.doc.press('Escape');
+    assert.equal(open(it_).length, 0);
+  });
+
+  it('ignores other keys', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    it_.doc.press('a');
+    assert.equal(open(it_).length, 1);
+  });
+
+  it('closes when the backdrop is clicked', async () => {
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    const sheet = open(it_)[0];
+    sheet.onclick({ target: sheet });
+    assert.equal(open(it_).length, 0);
+  });
+
+  it('stays open when the picture itself is clicked', async () => {
+    // Somebody looking at the map is not somebody reaching for the way out.
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    const sheet = open(it_)[0];
+    sheet.onclick({ target: byClass(it_.doc.body, 'bigframe')[0] });
+    assert.equal(open(it_).length, 1);
+  });
+
+  it('stops listening for Escape once it is closed', async () => {
+    // A listener left behind would close the next one as it opened.
+    const it_ = panelOver(bigAndSmall);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    it_.doc.press('Escape');
+    assert.equal(it_.doc.listening(), 0, 'the key handler is still attached');
+
+    byClass(it_.panel, 'thumb')[0].onclick();
+    assert.equal(open(it_).length, 1, 'the second one opens and stays open');
+  });
+
+  it('does nothing for an entry with no map in it', async () => {
+    const empty = { open_save: async () => ({ ok: true, maps: [
+      { index: 0, name: 'Broken', playable: false, derived: {} }] }) };
+    const it_ = panelOver(empty);
+    await it_.api.refresh();
+    byClass(it_.panel, 'thumb')[0].onclick();
+    assert.equal(open(it_).length, 0);
   });
 });

@@ -16,6 +16,12 @@ import * as saves from './saves.js';
 
 const THUMB = 7;   // pixels per tile in the list; big enough to recognise
 
+// How big the picture gets when a thumbnail is clicked. The sprites are 16px
+// tiles, so past about twice that it is upscaled blur rather than detail;
+// below ten it is not worth having opened anything.
+const BIG_MIN = 10;
+const BIG_MAX = 32;
+
 /**
  * Wire up the save panel.
  *
@@ -81,9 +87,93 @@ export function attachSaves({ panel, poster, pickMap }) {
     render();
   }
 
+  /**
+   * The tile size that fits this map on this screen.
+   *
+   * A thumbnail is for telling maps apart; this is for actually reading one,
+   * so it takes the window and works backwards. Clamped at both ends: the
+   * sprites are 16px, so a small map on a big screen would otherwise be
+   * blown up into blur.
+   */
+  function bigTile(doc) {
+    const cols = doc?.size?.cols || 1;
+    const rows = doc?.size?.rows || 1;
+    const room = globalThis.window ?? {};
+    // These have to cover the overlay's own chrome, not a guess at it: 28px
+    // of backdrop padding each side, 10px of frame padding, and a border.
+    // Too small and a map that would have fitted gets a scrollbar.
+    const wide = (room.innerWidth ?? 1000) - 88;
+    const tall = (room.innerHeight ?? 800) - 150;     // the same, plus caption
+    const fits = Math.floor(Math.min(wide / cols, tall / rows));
+    return Math.max(BIG_MIN, Math.min(BIG_MAX, fits));
+  }
+
+  /**
+   * The same map, big enough to look at.
+   *
+   * The renderer is already here and already the only thing this tool shares
+   * with the editor, so this is a second call to it rather than anything new
+   * - no editing, no interaction, just the picture at a size you can read.
+   *
+   * Dismissed by the button, by the backdrop, or by Escape. All three,
+   * because an overlay with no visible way out is a trap, and this one can
+   * cover the whole window.
+   */
+  function showBig(entry) {
+    const doc = entry.document;
+    if (!doc) return;
+
+    const named = (entry.name || '').trim();
+    const author = (entry.document?.author || '').trim();
+
+    const shut = el('button', {
+      className: 'bigshut', title: 'Close (Esc)', textContent: 'Close' });
+
+    const frame = el('div', { className: 'bigframe' },
+      poster(doc, bigTile(doc)));
+
+    const caption = el('div', { className: 'bigcaption' },
+      el('span', {
+        className: named ? 'name' : 'name unnamed',
+        textContent: named || 'Untitled',
+      }),
+      el('span', {
+        className: 'by',
+        textContent: author ? 'by ' + author : 'no author',
+      }));
+
+    const box = el('div', { className: 'bigbox' }, frame, caption);
+    const sheet = el('div', {
+      className: 'lightbox',
+      role: 'dialog',
+      ariaLabel: `${named || 'Untitled'}, full size`,
+    }, box, shut);
+
+    const onKey = (ev) => { if (ev.key === 'Escape') close(); };
+    function close() {
+      globalThis.document?.removeEventListener?.('keydown', onKey);
+      sheet.remove?.();
+    }
+
+    shut.onclick = close;
+    // Only the backdrop itself. A click that landed on the picture is
+    // somebody looking at it, not somebody reaching for the way out.
+    sheet.onclick = (ev) => { if (ev?.target === sheet) close(); };
+    globalThis.document?.addEventListener?.('keydown', onKey);
+
+    (globalThis.document?.body ?? panel).append(sheet);
+    shut.focus?.();
+    return { sheet, close };
+  }
+
   /** One map, as a card: picture, what it is, and what you can do to it. */
   function card(entry, i) {
-    const canvas = poster(entry.document, THUMB);
+    // A button, not a div with a click on it: this is reachable by keyboard
+    // and announces itself, and the picture is the obvious thing to press.
+    const look = el('button', {
+      className: 'thumb', title: 'Show this map bigger',
+    }, poster(entry.document, THUMB));
+    look.onclick = () => showBig(entry);
 
     // No "Open": there is nothing here to open a map into. Editing lives in
     // the map editor, which this tool is deliberately not.
@@ -96,7 +186,7 @@ export function attachSaves({ panel, poster, pickMap }) {
     const named = (entry.name || '').trim();
 
     return el('div', { className: 'mapcard' },
-      el('div', { className: 'thumb' }, canvas),
+      look,
       el('div', { className: 'meta' },
         el('div', {
           className: named ? 'name' : 'name unnamed',
@@ -225,7 +315,7 @@ export function attachSaves({ panel, poster, pickMap }) {
   }
 
   refresh();
-  return { refresh, addPicked };
+  return { refresh, addPicked, showBig };
 }
 
 /**

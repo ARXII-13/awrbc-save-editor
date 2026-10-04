@@ -115,11 +115,14 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
 .mapcard:hover { border-color: var(--line); }
 
 /* The thumbnail is a fixed box so the names line up down the page however
- * differently shaped the maps are. */
+ * differently shaped the maps are. It is a button - clicking it opens the
+ * map at a size you can read - so most of this undoes the button styling
+ * above rather than adding to it. */
 .thumb {
   width: 132px;
   min-width: 132px;
   height: 92px;
+  padding: 0;
   border-radius: 5px;
   background: #11131a;
   border: 1px solid var(--line-soft);
@@ -127,7 +130,10 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  cursor: zoom-in;
 }
+.thumb:hover { border-color: var(--accent); background: #11131a; }
+.thumb:active { transform: none; }
 .thumb canvas {
   max-width: 100%;
   max-height: 100%;
@@ -177,3 +183,57 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
 .notice.no { color: var(--bad); border-color: #4a3034; }
 
 .slot { color: var(--dimmer); font-variant-numeric: tabular-nums; }
+
+/* --- the map, full size ------------------------------------------------ */
+
+/* Opened by clicking a thumbnail. It draws the same map with the same
+ * renderer at a bigger tile size - there is nothing to interact with, which
+ * is why this is an overlay and not a second page. */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  /* Nearly opaque. At .88 the list behind it stayed readable and competed
+   * with the map, which is the one thing this is for. */
+  background: rgba(8, 9, 12, .96);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+}
+
+.bigbox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 100%;
+  max-height: 100%;
+  align-items: center;
+}
+
+.bigframe {
+  background: #11131a;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  overflow: auto;          /* a map bigger than the screen still scrolls */
+  max-width: 100%;
+}
+.bigframe canvas { image-rendering: pixelated; display: block; }
+
+.bigcaption {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.bigcaption .name { font-size: 14.5px; font-weight: 600; }
+.bigcaption .name.unnamed {
+  color: var(--dimmer); font-weight: 500; font-style: italic;
+}
+.bigcaption .by { color: var(--dim); font-size: 12.5px; }
+
+/* Out of the way of the picture, and never off the edge of a small window. */
+.bigshut { position: fixed; top: 18px; right: 20px; }
