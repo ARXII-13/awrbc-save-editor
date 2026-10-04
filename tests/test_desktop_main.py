@@ -20,6 +20,7 @@ runtime they already had.
 pywebview is an optional dependency and is not installed on CI, so it is faked
 here rather than imported.
 """
+import builtins
 import contextlib
 import io
 import os
@@ -27,6 +28,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from awrbc.desktop import __main__ as app
 
@@ -268,3 +270,178 @@ class WhenPywebviewIsMissing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnblockingItself(unittest.TestCase):
+    """The app takes the Internet-zone mark off its own files at startup.
+
+    Without this, a downloaded zip produces a dialog asking the person to
+    paste a PowerShell command before a map editor will open, which is a
+    thing almost nobody will do.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def write(self, name, zone=None):
+        path = os.path.join(self.tmp, name)
+        with open(path, "wb") as fh:
+            fh.write(b"not really a dll")
+        if zone is not None:
+            with open(path + ":Zone.Identifier", "wb") as fh:
+                fh.write(b"[ZoneTransfer]\r\nZoneId=%d\r\n" % zone)
+        return path
+
+    def marked(self, path):
+        try:
+            with open(path + ":Zone.Identifier", "rb") as fh:
+                return b"ZoneId=3" in fh.read(512)
+        except OSError:
+            return False
+
+    @unittest.skipUnless(sys.platform == "win32",
+                         "alternate data streams are an NTFS thing")
+    def test_it_clears_the_mark(self):
+        path = self.write("Python.Runtime.dll", zone=3)
+        self.assertTrue(self.marked(path), "the test set it up wrong")
+
+        cleared, refused = app.unblock_self(self.tmp)
+
+        self.assertEqual((cleared, refused), (1, 0))
+        self.assertFalse(self.marked(path))
+        self.assertEqual(app.blocked_files(self.tmp)[0], 0,
+                         "the check that produces the dialog should now "
+                         "find nothing")
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_the_file_itself_survives(self):
+        """Clearing the mark must not disturb what it was attached to."""
+        path = self.write("Python.Runtime.dll", zone=3)
+        app.unblock_self(self.tmp)
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), b"not really a dll")
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_it_leaves_alone_what_dotnet_would_not_refuse(self):
+        """Only the mark that actually blocks anything. A zone-1 file loads
+        fine, and stripping marks for their own sake is not this function's
+        business."""
+        intranet = self.write("intranet.dll", zone=1)
+        app.unblock_self(self.tmp)
+        with open(intranet + ":Zone.Identifier", "rb") as fh:
+            self.assertIn(b"ZoneId=1", fh.read())
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_it_ignores_files_dotnet_would_never_load(self):
+        notes = self.write("notes.txt", zone=3)
+        self.assertEqual(app.unblock_self(self.tmp), (0, 0))
+        self.assertTrue(self.marked(notes))
+
+    def test_nothing_to_do_is_not_an_error(self):
+        self.write("clean.dll")
+        self.assertEqual(app.unblock_self(self.tmp), (0, 0))
+        self.assertEqual(app.unblock_self(os.path.join(self.tmp, "gone")),
+                         (0, 0))
+        self.assertEqual(app.unblock_self(""), (0, 0))
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_a_file_it_cannot_write_is_counted_not_raised(self):
+        """The read-only install case. It has to survive it and say so,
+        because that is the one time the dialog still has to appear."""
+        self.write("Python.Runtime.dll", zone=3)
+        real_remove = os.remove
+
+        def refuse(path, *a, **kw):
+            if path.endswith(":Zone.Identifier"):
+                raise PermissionError("read-only")
+            return real_remove(path, *a, **kw)
+
+        with mock.patch("os.remove", refuse):
+            cleared, refused = app.unblock_self(self.tmp)
+        self.assertEqual((cleared, refused), (0, 1))
+
+
+class UnblockingHappensBeforeDotNet(unittest.TestCase):
+    """Order is the whole point.
+
+    Once .NET has refused an assembly, clearing the mark afterwards does not
+    help this process - it has to happen before anything imports the backend.
+    """
+
+    def test_it_runs_before_webview_is_imported(self):
+        order = []
+
+        def watched(folder):
+            order.append("unblock")
+            return (0, 0)
+
+        real_import = builtins.__import__
+
+        def noting(name, *a, **kw):
+            if name == "webview":
+                order.append("import webview")
+                raise ImportError("not here")
+            return real_import(name, *a, **kw)
+
+        with mock.patch.object(app, "unblock_self", watched), \
+                mock.patch.object(builtins, "__import__", noting), quiet():
+            app.main([], box=lambda _: None)
+
+        self.assertEqual(order, ["unblock", "import webview"],
+                         "clearing the mark after .NET has already refused "
+                         "an assembly is too late for this process")
+
+
+class TheAppsOwnExecutable(unittest.TestCase):
+    """A marked .exe is not a reason to tell anybody anything.
+
+    Found on a real machine: after the bundle unblocked itself, 35 of 36
+    files were clear and one was not - awrbc.exe, because Windows will not
+    release the stream of a running executable. Its mark never blocked
+    anything, .NET refuses assemblies. But it left blocked_files answering 1
+    forever, so the next failure from any cause at all would have been
+    diagnosed as a zone mark.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def write(self, name, zone=3):
+        path = os.path.join(self.tmp, name)
+        with open(path, "wb") as fh:
+            fh.write(b"x")
+        with open(path + ":Zone.Identifier", "wb") as fh:
+            fh.write(b"[ZoneTransfer]\r\nZoneId=%d\r\n" % zone)
+        return path
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_a_marked_exe_is_not_counted_as_blocking(self):
+        self.write("awrbc.exe")
+        self.assertEqual(app.blocked_files(self.tmp)[0], 0)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_it_is_not_reported_as_a_file_we_failed_to_clear(self):
+        """Otherwise every single run ends with refused=1."""
+        self.write("awrbc.exe")
+        self.assertEqual(app.unblock_self(self.tmp), (0, 0))
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_a_marked_exe_alone_does_not_produce_the_zone_dialog(self):
+        self.write("awrbc.exe")
+        said = app.why_no_window(RuntimeError("something else entirely"),
+                                 self.tmp)
+        self.assertNotIn("Unblock-File", said,
+                         "a running exe keeps its mark on every machine; "
+                         "blaming it would send everybody to a fix that "
+                         "changes nothing")
+        self.assertIn("something else entirely", said)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_a_marked_assembly_beside_it_still_is(self):
+        self.write("awrbc.exe")
+        self.write("Python.Runtime.dll")
+        self.assertEqual(app.blocked_files(self.tmp)[0], 1)
+        self.assertIn("Unblock-File", app.why_no_window(RuntimeError("x"),
+                                                        self.tmp))

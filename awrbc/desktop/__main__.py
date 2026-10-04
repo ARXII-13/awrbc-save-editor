@@ -112,6 +112,16 @@ def report(message, box=None):
 #: dozens of api-ms-win-core-*.dll beside it and none of them explain anything.
 THE_ASSEMBLY = "python.runtime.dll"
 
+#: What a zone mark can actually stop. Deliberately not `.exe`: the only one
+#: in the bundle is the app itself, Windows will not release the stream of a
+#: running executable, and its mark never blocked anything anyway - .NET
+#: refuses *assemblies*. Counting it meant a bundle that had just unblocked
+#: itself still reported one marked file, so any later failure for any other
+#: reason would be blamed on a zone mark and send somebody to run
+#: Unblock-File for nothing. That is the same wrong answer as the first
+#: release blaming WebView2, arrived at from the other direction.
+LOADABLE = (".dll", ".pyd")
+
 
 def blocked_files(folder):
     """Files Windows has marked as having come from the internet.
@@ -130,7 +140,7 @@ def blocked_files(folder):
     count, example = 0, ""
     for root, _dirs, names in os.walk(folder):
         for name in names:
-            if not name.lower().endswith((".dll", ".exe", ".pyd")):
+            if not name.lower().endswith(LOADABLE):
                 continue
             path = os.path.join(root, name)
             try:
@@ -144,6 +154,47 @@ def blocked_files(folder):
             if not example or name.lower() == THE_ASSEMBLY:
                 example = path
     return count, example
+
+
+def unblock_self(folder):
+    """Take the Internet-zone mark off our own files.
+
+    Exactly what `Unblock-File` does, done by the app instead of by the
+    person who downloaded it. Deleting the `Zone.Identifier` stream is the
+    whole of it - there is no flag to clear, the mark *is* that stream.
+
+    This exists because the alternative is a dialog telling somebody to paste
+    a PowerShell command before a map editor will open, which is a thing
+    almost nobody will do. Electron apps never meet this: the mark only stops
+    .NET from loading an assembly, and they have no .NET. We reach WebView2
+    through pythonnet, so we do.
+
+    It is deliberate that this touches only the bundle's own directory, and
+    only after the person has already chosen to run the app and cleared
+    SmartScreen to do it. Returns ``(cleared, refused)`` - refused counts
+    files we could not write to, which is the read-only install case, and is
+    why the dialog that explains all this has to stay.
+    """
+    if sys.platform != "win32" or not os.path.isdir(folder):
+        return 0, 0
+    cleared = refused = 0
+    for root, _dirs, names in os.walk(folder):
+        for name in names:
+            if not name.lower().endswith(LOADABLE):
+                continue
+            path = os.path.join(root, name)
+            try:
+                with open(path + ":Zone.Identifier", "rb") as fh:
+                    if b"ZoneId=3" not in fh.read(512):
+                        continue
+            except OSError:
+                continue            # no stream, or not a filesystem with them
+            try:
+                os.remove(path + ":Zone.Identifier")
+                cleared += 1
+            except OSError:
+                refused += 1
+    return cleared, refused
 
 
 def why_no_window(exc, folder):
@@ -161,13 +212,16 @@ def why_no_window(exc, folder):
         root = os.path.dirname(folder) or folder
         return (
             "This app cannot start, and it is not broken - Windows has it "
-            "blocked.\n\n"
+            "blocked, and it could not unblock itself.\n\n"
             "It was extracted from a downloaded zip, so Windows marked its "
             "files as coming from the internet. .NET refuses to load a marked "
             "assembly, and this app reaches the browser engine through .NET. "
             "%d files are marked, including:\n\n"
             "    %s\n\n"
-            "To unblock them, paste this into PowerShell:\n\n"
+            "The app clears this mark from its own files at startup, so "
+            "seeing this means it was not allowed to - usually a folder "
+            "it cannot write to, such as Program Files. Moving it "
+            "somewhere you own fixes it, or paste this into PowerShell:\n\n"
             "    Get-ChildItem -Recurse '%s' | Unblock-File\n\n"
             "Or delete that folder, right-click the .zip, tick Unblock in "
             "Properties, and extract it again.\n\n"
@@ -183,6 +237,12 @@ def why_no_window(exc, folder):
 
 def main(argv=None, box=None):
     argv = sys.argv[1:] if argv is None else argv
+
+    # Before anything can reach .NET, which is the point: once an assembly
+    # has been refused, clearing the mark afterwards is too late for this
+    # process. Only our own bundle, and only when frozen - from a checkout
+    # there is nothing to unmark.
+    unblock_self(getattr(sys, "_MEIPASS", ""))
 
     try:
         import webview
