@@ -38,8 +38,19 @@ if (-not (Test-Path $Zip)) { Write-Output "no such zip: $Zip"; exit 2 }
 
 Write-Output "zip      : $Zip  ($([math]::Round((Get-Item $Zip).Length / 1MB, 1)) MB)"
 Write-Output "machine  : $env:COMPUTERNAME"
+# Finding python.exe does not mean Python is installed. Windows leaves a
+# zero-byte Store alias stub on PATH that is not an interpreter, and after an
+# uninstall it is all that remains - so a check that only looks for the file
+# reports "installed" on a machine that has none, which is the exact thing
+# this run exists to establish. Judged by size and location rather than by
+# running it, because running the stub opens the Microsoft Store.
 $py = Get-Command python -ErrorAction SilentlyContinue
-Write-Output "python   : $(if ($py) { "installed at $($py.Source) - this machine proves less" } else { 'not installed - good, that is the test' })"
+$stub = $py -and (($py.Source -like '*\WindowsApps\*') -or
+                  ((Get-Item $py.Source -ErrorAction SilentlyContinue).Length -eq 0))
+Write-Output ("python   : " + $(
+  if ($py -and -not $stub) { "installed at $($py.Source) - this machine proves less" }
+  elseif ($stub) { 'only the Store alias stub on PATH, not an interpreter - good' }
+  else { 'not installed - good, that is the test' }))
 
 if (Test-Path $To) { Remove-Item -Recurse -Force $To }
 Expand-Archive -Path $Zip -DestinationPath $To -Force
