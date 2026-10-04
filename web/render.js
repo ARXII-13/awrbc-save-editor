@@ -85,6 +85,13 @@ const VISUAL_LINKS = {
   // though it joined nothing.
   32768: { links: new Set([32768, 65536, 524288, 1048576, 2097152, 8388608]) },
   65536: { links: new Set([32768, 65536, 524288, 1048576, 2097152, 8388608]) },
+  // Sea is named by the sides facing LAND, not by the sides joining water -
+  // a shoreline, which is the same thing autotile.py has always meant by it.
+  // `water` mirrors WATER there, seaport included: a port is water from the
+  // side its dock faces, and this cannot see which side that is, so it counts
+  // as water from all of them. The cost is a missing shore edge beside a port
+  // rather than a wrong one somewhere else.
+  2: { shore: new Set([2, 16, 32, 64, 256, 8192]) },
 };
 
 /**
@@ -98,10 +105,21 @@ const VISUAL_LINKS = {
  * variant painting can never produce.
  */
 export function paletteDirs(id) {
-  return VISUAL_LINKS[id] ? 'N+E+S+W' : '';
+  const rule = VISUAL_LINKS[id];
+  // A shoreline named for all four sides is a one-tile pond. The brush paints
+  // sea into sea, so the swatch shows open water.
+  if (!rule || rule.shore) return '';
+  return 'N+E+S+W';
 }
 
-function dirsFor(terrain, x, y, id) {
+/**
+ * Which sides a tile joins, or - for a shoreline - which sides face land.
+ *
+ * Exported for its tests. It is a pure function over the terrain grid and the
+ * rule it encodes is not obvious from reading it: sea is named by its shore,
+ * a bridge by its railings, everything else by what it connects to.
+ */
+export function dirsFor(terrain, x, y, id) {
   const rule = VISUAL_LINKS[id];
   if (!rule) return '';
   const at = (dx, dy) => {
@@ -109,6 +127,20 @@ function dirsFor(terrain, x, y, id) {
     return (ny >= 0 && ny < terrain.length && nx >= 0 && nx < terrain[0].length)
       ? terrain[ny][nx] : null;
   };
+
+  if (rule.shore) {
+    // Off the edge of the map is water, not shore. A map that stops is not a
+    // coastline, and drawing one there frames every sea map in a beach.
+    const land = (dx, dy) => {
+      const n = at(dx, dy);
+      return n !== null && !rule.shore.has(n);
+    };
+    return [['N', 0, -1], ['E', 1, 0], ['S', 0, 1], ['W', -1, 0]]
+      .filter(([, dx, dy]) => land(dx, dy))
+      .map(([d]) => d)
+      .join('+');
+  }
+
   const joined = {
     N: rule.links.has(at(0, -1)),
     E: rule.links.has(at(1, 0)),
@@ -327,9 +359,10 @@ export function drawMap(ctx, doc, opts = {}) {
  * Keeps every map at the same scale rather than fitting one into a box - so a 64x64 map looks big next to a 10x10 one, which is true and
  * is what someone browsing wants to know.
  *
- * Renders with whatever pack is loaded, so a preview looks like the map does
- * on screen. With no pack it falls to glyphs, which is the only fallback there
- * is - see decision #46.
+ * Renders with whatever pack is loaded. A preview is meant to look like the
+ * map does on screen, so this draws what the editor draws; the author's loaded
+ * pack is therefore what reaches the archive. With no pack it falls to glyphs,
+ * which is the only fallback there is - see decision #46.
  */
 export function poster(doc, tilePx = 16) {
   const canvas = document.createElement('canvas');
