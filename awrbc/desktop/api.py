@@ -99,9 +99,9 @@ class SaveApi:
     def _refuse_if_running(self):
         if self._game_running():
             raise AwrbcError(
-                "the game appears to be running. It flushes its own copy of "
-                "the save over anything written underneath it, so close it "
-                "first.")
+                "an emulator is running. A loaded game keeps its own copy "
+                "of the save and writes it back over anything put underneath "
+                "it, so close the game and let it shut down properly first.")
 
     @_guard
     def import_map(self, path, document, name=None):

@@ -37,10 +37,18 @@ def _resolve(args):
 
 
 def _game_running():
-    """Is the title running? It flushes its own copy over external writes.
+    """Is an emulator running? A loaded game flushes its own copy over us.
 
-    Only a loaded game holds the save; the emulator sitting open with no title
-    is fine, so this must not refuse merely because an emulator is on screen.
+    It answers for the *emulator*, not for the title, and this docstring used
+    to claim the opposite - that an emulator sitting open with no game loaded
+    was fine and must not be refused. The code has never done that, and
+    nothing here can: telling a loaded game from a game list means reading
+    window titles or open handles, which is a great deal of fragile work to
+    permit a write somebody could allow by closing a window.
+
+    So it refuses more often than it strictly must, and that is the direction
+    to be wrong in. It is also why the panel asks people to close the game
+    rather than advertising this as a guarantee - see the note in save.html.
 
     Every emulator anybody might be running, not just the one this was
     developed against. It looked for "ryujinx" alone until the save locator

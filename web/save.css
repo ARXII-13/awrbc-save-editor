@@ -51,6 +51,14 @@ main { padding: 20px; max-width: 720px; margin: 0 auto; }
 .warnlabel { color: var(--warn); }
 .lead { margin: 0 0 16px; }
 
+/* The one thing that can lose somebody's work, so it does not read as more
+ * prose. Not an alarm either - it is ordinary advice, until it is not. */
+.lead.note {
+  border-left: 2px solid var(--warn);
+  padding-left: 11px;
+  color: var(--dim);
+}
+
 /* --- controls ---------------------------------------------------------- */
 
 button, .btn {

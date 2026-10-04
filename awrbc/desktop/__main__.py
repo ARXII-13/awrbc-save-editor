@@ -44,11 +44,16 @@ TITLE = "Advance Wars 1+2 map tool"
 
 
 def game_running():
-    """Is the emulator holding the save?
+    """Is an emulator running?
 
     Asks the platform's own process list. The same check the CLI makes, and
     for the same reason: a loaded game writes its own copy over anything put
     underneath it.
+
+    It cannot tell a loaded game from an emulator sitting on its game list,
+    so it refuses for both. The panel therefore asks people to close the game
+    properly rather than presenting this as a guarantee - it is a net under
+    the instruction, not a replacement for it.
 
     Answers False when it cannot tell. Refusing to work because `ps` is
     missing would be worse than the risk, and that is a deliberate fail-open.
