@@ -364,5 +364,89 @@ class ASaveCopiedOffAConsole(unittest.TestCase):
         self.assertEqual([os.path.basename(c.path) for c in found], ["maps"])
 
 
+class WhereverTheTitleIdSits(unittest.TestCase):
+    """The yuzu family does not agree with itself about the layout.
+
+    yuzu wrote `save/<account>/<user>/<title id>/`. Eden documents
+    `save/0000000000000001/<title id>/0/` - title id one level up, a user
+    index below it. The first version of this scan hardcoded the yuzu shape
+    and would have found nothing at all on Eden.
+
+    Neither shape is assumed now: a maps file with the title id somewhere
+    above it is ours.
+    """
+
+    OTHER_GAME = "0100000000010000"
+
+    def yuzu_style(self, root, user="user1", title=None):
+        return touch(os.path.join(root, "nand", "user", "save",
+                                  "0000000000000000", user,
+                                  title or locate.TITLE_ID_HEX, "maps"))
+
+    def eden_style(self, root, index="0", title=None):
+        return touch(os.path.join(root, "nand", "user", "save",
+                                  "0000000000000001",
+                                  title or locate.TITLE_ID_HEX, index, "maps"))
+
+    def test_the_yuzu_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = self.yuzu_style(d)
+            self.assertEqual([c.path for c in locate.scan_yuzu_root(d)], [maps])
+
+    def test_the_eden_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = self.eden_style(d)
+            self.assertEqual([c.path for c in locate.scan_yuzu_root(d)], [maps])
+
+    def test_both_at_once(self):
+        """Somebody with two emulators pointed at one data folder is not a
+        case to be clever about, but it should not lose either."""
+        with tempfile.TemporaryDirectory() as d:
+            a = self.yuzu_style(d)
+            b = self.eden_style(d)
+            self.assertEqual(sorted(c.path for c in locate.scan_yuzu_root(d)),
+                             sorted([a, b]))
+
+    def test_another_game_is_still_ignored_in_either_shape(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.yuzu_style(d, title=self.OTHER_GAME)
+            self.eden_style(d, title=self.OTHER_GAME)
+            self.assertEqual(locate.scan_yuzu_root(d), [])
+
+    def test_ours_is_found_beside_another_game(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.eden_style(d, title=self.OTHER_GAME)
+            ours = self.eden_style(d)
+            self.assertEqual([c.path for c in locate.scan_yuzu_root(d)], [ours])
+
+    def test_two_users_stay_apart(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.eden_style(d, index="0")
+            self.eden_style(d, index="1")
+            got = locate.scan_yuzu_root(d)
+            self.assertEqual(len(got), 2)
+            self.assertEqual(sorted(c.profile for c in got), ["0", "1"])
+
+    def test_the_profile_tells_two_of_the_same_shape_apart(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.yuzu_style(d, user="alice")
+            self.yuzu_style(d, user="bob")
+            got = locate.describe(locate.scan_yuzu_root(d))
+            self.assertEqual(len({c.display for c in got}), 2,
+                             [c.display for c in got])
+
+    def test_a_lowercase_title_id_is_the_same_game(self):
+        with tempfile.TemporaryDirectory() as d:
+            maps = self.eden_style(d, title=locate.TITLE_ID_HEX.lower())
+            self.assertEqual([c.path for c in locate.scan_yuzu_root(d)], [maps])
+
+    def test_eden_is_one_of_the_emulators_we_look_for(self):
+        names = {n for n, _folder, _layout in locate.EMULATORS}
+        self.assertIn("Eden", names)
+        for name, _folder, layout in locate.EMULATORS:
+            if name == "Eden":
+                self.assertEqual(layout, "yuzu")
+
+
 if __name__ == "__main__":
     unittest.main()

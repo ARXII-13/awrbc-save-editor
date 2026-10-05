@@ -41,6 +41,8 @@ EMULATORS = (
     ("Suyu", "suyu", "yuzu"),
     ("Sudachi", "sudachi", "yuzu"),
     ("Citron", "citron", "yuzu"),
+    ("Eden", "Eden", "yuzu"),
+    ("Torzu", "torzu", "yuzu"),
 )
 
 #: Process names that mean an emulator is up, derived from the same list so
@@ -185,28 +187,46 @@ def emulator_roots() -> list:
 
 
 def scan_yuzu_root(root: str, emulator: str = None) -> list:
-    """The game's maps file under a yuzu-layout root.
+    """Every maps file for this game under a yuzu-family root.
 
-    This layout puts the title id in the path, so there is nothing to search:
-    the game's own folder is either there or it is not. That is the whole
-    advantage of it over the Ryujinx layout, where the save id is opaque and
-    every one has to be opened to find out what game it belongs to.
+    This family puts the title id *in the path*, which is the one real
+    advantage it has over the Ryujinx layout - there, the save id is opaque
+    and every one has to be opened to find out which game it belongs to.
+
+    Where in the path, though, is not agreed. yuzu wrote
+    ``save/<account>/<user>/<title id>/``; Eden documents
+    ``save/0000000000000001/<title id>/0/``, with the title id one level up
+    and a user index below it. Forks will keep doing this.
+
+    So nothing about the depth is assumed. It looks for a maps file with the
+    title id somewhere above it, which is true of both shapes and of ones
+    nobody has written yet. The alternative is a guess per emulator, and the
+    guess already in here was wrong for Eden.
     """
     base = os.path.join(root, NAND_SUBPATH)
     if not os.path.isdir(base):
         return []
+
+    wanted = TITLE_ID_HEX.lower()
     found = []
-    for account in sorted(os.listdir(base)):
-        account_dir = os.path.join(base, account)
-        if not os.path.isdir(account_dir):
+    for folder, dirs, names in os.walk(base):
+        if MAPS_FILE not in names:
             continue
-        for user in sorted(os.listdir(account_dir)):
-            maps = os.path.join(account_dir, user, TITLE_ID_HEX, MAPS_FILE)
-            if os.path.isfile(maps):
-                found.append(SaveCandidate(
-                    path=maps, profile=user, save_id=TITLE_ID_HEX,
-                    source="yuzu", emulator=emulator,
-                    size=os.path.getsize(maps)))
+        parts = os.path.relpath(folder, base).split(os.sep)
+        lowered = [p.lower() for p in parts]
+        if wanted not in lowered:
+            continue
+        # Whatever distinguishes two of these from each other: the part
+        # below the title id where there is one, the part above otherwise.
+        at = lowered.index(wanted)
+        rest = parts[at + 1:]
+        profile = rest[-1] if rest else (parts[at - 1] if at else None)
+        maps = os.path.join(folder, MAPS_FILE)
+        found.append(SaveCandidate(
+            path=maps, profile=profile, save_id=TITLE_ID_HEX,
+            source="yuzu", emulator=emulator,
+            size=os.path.getsize(maps)))
+    found.sort(key=lambda c: c.path)
     return found
 
 
