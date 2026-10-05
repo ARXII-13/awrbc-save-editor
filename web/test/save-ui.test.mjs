@@ -879,3 +879,183 @@ describe('choosing between saves', () => {
     assert.ok(!/Ryujinx|yuzu|Sudachi/i.test(said), said);
   });
 });
+
+describe('a save with no maps file in it', () => {
+  // What a console save looks like when its owner has never opened the
+  // Design Room. The tool makes the file rather than sending them away to
+  // make a map by hand first.
+  const noFileYet = {
+    find_saves: async () => ({ ok: true, saves: [] }),
+    browse_for_save: async () => ({
+      ok: false, kind: 'NoMapsYet', canCreate: true,
+      folder: 'D:/switch/ARX II-13',
+      error: 'it has no maps file',
+    }),
+  };
+
+  const doc = (name) => ({ name, size: { cols: 8, rows: 8 } });
+  const picker = (p) => byClass(p.panel, 'savepick')[0];
+
+  const browse = async (p) => {
+    const list = picker(p);
+    list.value = '__browse__';
+    list.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it('offers to make one instead of refusing', async () => {
+    const p = panelOver(noFileYet);
+    await p.api.refresh();
+    await browse(p);
+    assert.equal(byClass(p.panel, 'making').length, 1,
+                 'it should say the file will be made');
+    assert.equal(p.alerts.length, 0, 'and not report it as an error');
+  });
+
+  it('names the folder it will write into', async () => {
+    const p = panelOver(noFileYet);
+    await p.api.refresh();
+    await browse(p);
+    assert.match(text(byClass(p.panel, 'making')[0]), /ARX II-13/);
+  });
+
+  it('shows the maps that will go in it', async () => {
+    const p = panelOver(noFileYet);
+    await p.api.refresh();
+    await browse(p);
+    p.api.queue([doc('One'), doc('Two')]);
+    assert.equal(byClass(p.panel, 'coming').filter(
+      (n) => String(n.className).includes('badge')).length, 2);
+  });
+
+  it('calls the button Create rather than Save', async () => {
+    const p = panelOver(noFileYet);
+    await p.api.refresh();
+    await browse(p);
+    p.api.queue([doc('One')]);
+    assert.ok(byText(p.panel, 'Create maps file'),
+              buttons(p.panel).map(text).join(' | '));
+  });
+
+  it('makes the file with the queued maps in it', async () => {
+    let seen = null;
+    const p = panelOver({
+      ...noFileYet,
+      create_save: async (folder, adds) => {
+        seen = { folder, adds };
+        return { ok: true, path: 'D:/switch/ARX II-13/SaveData/maps',
+                 created: ['One', 'Two'] };
+      },
+      open_save: async () => ({ ok: true, maps: [] }),
+    });
+    await p.api.refresh();
+    await browse(p);
+    p.api.queue([doc('One'), doc('Two')]);
+    await p.api.commit();
+
+    assert.equal(seen.folder, 'D:/switch/ARX II-13');
+    assert.deepEqual(seen.adds.map((a) => a.document.name), ['One', 'Two']);
+  });
+
+  it('refuses to make an empty one', async () => {
+    // The file is built with the maps in it: an empty document carries only
+    // the root class definitions and nothing could be added to it later.
+    let called = false;
+    const p = panelOver({
+      ...noFileYet,
+      create_save: async () => { called = true; return { ok: true }; },
+    });
+    await p.api.refresh();
+    await browse(p);
+    await p.api.commit();
+    assert.equal(called, false);
+  });
+
+  it('asks before writing, and writes nothing when declined', async () => {
+    let called = false;
+    const p = panelOver({
+      ...noFileYet,
+      create_save: async () => { called = true; return { ok: true }; },
+    }, { confirms: [false] });
+    await p.api.refresh();
+    await browse(p);
+    p.api.queue([doc('One')]);
+    await p.api.commit();
+    assert.equal(called, false);
+  });
+
+  it('keeps the queue when making the file fails', async () => {
+    const p = panelOver({
+      ...noFileYet,
+      create_save: async () => ({ ok: false, error: 'no' }),
+    });
+    await p.api.refresh();
+    await browse(p);
+    p.api.queue([doc('One'), doc('Two')]);
+    await p.api.commit();
+    assert.equal(byClass(p.panel, 'coming').filter(
+      (n) => String(n.className).includes('badge')).length, 2);
+  });
+
+  it('opens the save it just made, like any other', async () => {
+    const opened = [];
+    const p = panelOver({
+      ...noFileYet,
+      create_save: async () => ({
+        ok: true, path: 'D:/switch/ARX II-13/SaveData/maps',
+        created: ['One'] }),
+      open_save: async (path) => {
+        opened.push(path);
+        return { ok: true, maps: [] };
+      },
+    });
+    await p.api.refresh();
+    await browse(p);
+    p.api.queue([doc('One')]);
+    await p.api.commit();
+
+    assert.equal(opened.at(-1), 'D:/switch/ARX II-13/SaveData/maps');
+    assert.equal(byClass(p.panel, 'making').length, 0,
+                 'it is an ordinary save now');
+  });
+
+  it('drops removal marks from the save you came from', async () => {
+    // They are indices into a save that is no longer open. Carried over,
+    // they would make commit() think there is work to do and reach the
+    // create path with nothing to create.
+    let called = false;
+    const p = panelOver({
+      find_saves: async () => ({ ok: true, saves: [
+        { path: 'C:/ryu/maps', label: 'Ryujinx profile 0' }] }),
+      open_save: async () => ({ ok: true, maps: [
+        { index: 0, name: 'Old', playable: true, derived: { players: 2 },
+          document: { size: { cols: 8, rows: 8 } } }] }),
+      browse_for_save: async () => ({
+        ok: false, kind: 'NoMapsYet', canCreate: true,
+        folder: 'D:/switch/ARX II-13', error: 'no maps file' }),
+      create_save: async () => { called = true; return { ok: true }; },
+    });
+    await p.api.refresh();
+    buttons(p.panel).find((b) => b.textContent === 'Remove').onclick();
+    await browse(p);
+    await p.api.commit();
+
+    assert.equal(called, false, 'nothing should have been created');
+    assert.equal(byClass(p.panel, 'commitbar').length, 0,
+                 'and nothing should still look pending');
+  });
+
+  it('still reports a browse that really did fail', async () => {
+    const p = panelOver({
+      find_saves: async () => ({ ok: true, saves: [] }),
+      browse_for_save: async () => ({
+        ok: false, kind: 'NotAFolder',
+        error: 'a Switch over USB is a portable device' }),
+    });
+    await p.api.refresh();
+    await browse(p);
+    assert.equal(byClass(p.panel, 'making').length, 0);
+    assert.ok(p.alerts.some((m) => /portable device/.test(m)),
+              p.alerts.join(' | '));
+  });
+});

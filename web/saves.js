@@ -70,6 +70,8 @@ async function call(name, ...args) {
 
 export const findSaves = (saveDir) => call('find_saves', saveDir ?? null);
 export const browseForSave = (kind) => call('browse_for_save', kind ?? 'folder');
+export const createSave = (folder, adds) =>
+  call('create_save', folder, adds ?? []);
 export const applyChanges = (path, removes, adds) =>
   call('apply_changes', path, removes ?? [], adds ?? []);
 export const openSave = (path) => call('open_save', path);

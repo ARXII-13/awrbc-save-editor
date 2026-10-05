@@ -262,6 +262,16 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
 }
 .notice.no { color: var(--bad); border-color: #4a3034; }
 
+/* About to write a file that is not there yet, which is worth noticing
+ * without being alarming - nothing else in the save is touched. */
+.notice.making {
+  text-align: left;
+  border-style: solid;
+  border-color: #3c5c8c;
+  background: #1b2433;
+  color: var(--ink);
+}
+
 .slot { color: var(--dimmer); font-variant-numeric: tabular-nums; }
 
 /* --- the map, full size ------------------------------------------------ */

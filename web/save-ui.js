@@ -50,6 +50,13 @@ export function attachSaves({ panel, poster, importControl }) {
   let going = new Set();
   let queued = [];
 
+  // A save folder with no maps file in it, waiting for one to be made. The
+  // game allocates that file the first time the save holds a custom map, so
+  // a player who has never opened the Design Room has none - and sending
+  // them away to make a map before a map-importing tool will speak to them
+  // is no kind of answer.
+  let creatingIn = null;
+
   const pending = () => going.size + queued.length;
   function clearStaged() { going = new Set(); queued = []; }
 
@@ -396,8 +403,24 @@ export function attachSaves({ panel, poster, importControl }) {
     const pickers = switcher();
     const bar = commitBar();
 
+    // Said above the list, not instead of it: the queued maps are what you
+    // are about to create, and seeing them is the point.
+    const creatingNote = creatingIn ? el('div', {
+      className: 'notice making',
+      textContent:
+        'This save has no maps file yet - the game makes one the first time ' +
+        'it holds a custom map. Import the maps you want and they will go ' +
+        'into a new file here: ' + creatingIn,
+    }) : null;
+
     let list;
-    if (!open_) {
+    if (creatingIn) {
+      list = queued.length
+        ? el('div', { className: 'maplist' },
+             ...queued.map((item, i) => queuedCard(item, i)))
+        : el('div', { className: 'notice',
+                      textContent: 'No maps imported yet.' });
+    } else if (!open_) {
       // Deliberately not naming one emulator. A save can come from any of
       // them, or off a modded console, and telling somebody their Ryujinx
       // save is missing when they have never run Ryujinx is worse than
@@ -426,6 +449,7 @@ export function attachSaves({ panel, poster, importControl }) {
          ...(importControl ? [importControl] : []), takeBackup, roll),
       ...(pickers ? [pickers] : []),
       ...(bar ? [bar] : []),
+      ...(creatingNote ? [creatingNote] : []),
       ...(head ? [head] : []),
       list);
   }
@@ -442,13 +466,19 @@ export function attachSaves({ panel, poster, importControl }) {
     const parts = [];
     if (going.size) parts.push(going.size === 1 ? '1 map to remove'
                                                 : `${going.size} maps to remove`);
-    if (queued.length) parts.push(queued.length === 1 ? '1 to add'
-                                                      : `${queued.length} to add`);
+    if (queued.length) {
+      const n = queued.length;
+      parts.push(creatingIn
+        ? `${n} map${n === 1 ? '' : 's'} to put in a new maps file`
+        : (n === 1 ? '1 to add' : `${n} to add`));
+    }
 
     const save = el('button', {
       className: 'btn primary',
-      title: 'Write every pending change to the save, in one go',
-      textContent: 'Save changes' });
+      title: creatingIn
+        ? 'Make the maps file, with these maps in it'
+        : 'Write every pending change to the save, in one go',
+      textContent: creatingIn ? 'Create maps file' : 'Save changes' });
     save.onclick = commit;
 
     const drop = el('button', {
@@ -474,6 +504,7 @@ export function attachSaves({ panel, poster, importControl }) {
   /** Write everything at once. */
   async function commit() {
     if (!pending()) return;
+    if (creatingIn) return createHere();
     const bits = [];
     if (going.size) {
       bits.push(`remove ${going.size} map${going.size === 1 ? '' : 's'}`);
@@ -507,6 +538,50 @@ export function attachSaves({ panel, poster, importControl }) {
     alert(`Saved: ${done.join(', ')}.\nBackup: ${got.backup}`);
   }
 
+  /**
+   * Make the maps file, with the queued maps already in it.
+   *
+   * Never empty: an empty document carries only the root class definitions,
+   * and the ones for tiles and units appear when a map is first serialised -
+   * which is what every later add models its records on.
+   */
+  async function createHere() {
+    // No empty check here on purpose. commit() has already refused when
+    // nothing is staged, and in this mode nothing but a queued map can be
+    // staged - removal marks are dropped on the way in, and there are no
+    // cards to make more. A guard that cannot fire is a guard no test can
+    // hold honest. The bridge refuses an empty create too, and that one is
+    // reachable and tested.
+    const n = queued.length;
+    if (!confirm(`Make a maps file in this save with ${n} ` +
+                 `map${n === 1 ? '' : 's'} in it?\n\n${creatingIn}\n\n` +
+                 'Nothing else in the save is touched, and the game must ' +
+                 'be closed.')) {
+      return;
+    }
+
+    say('Writing…');
+    const got = await saves.createSave(
+      creatingIn, queued.map((q) => ({ document: q.document, name: q.name })));
+    if (!got.ok) {
+      const detail = (got.findings ?? [])
+        .map((f) => `
+  ${f.code}: ${f.message}`).join('');
+      alert(got.error + detail);
+      return render();        // the queue is kept; nothing was written
+    }
+
+    // It is a save like any other now, so it joins the list and opens.
+    found.push({ path: got.path, label: 'Opened by hand', source: 'directory',
+                 byHand: true });
+    creatingIn = null;
+    clearStaged();
+    savePath = got.path;
+    await open(savePath);
+    alert(`Made a maps file with ${got.created.length} ` +
+          `map${got.created.length === 1 ? '' : 's'} in it.`);
+  }
+
   /** Point at a save by hand - the answer for a console dump. */
   async function browseForSave() {
     if (pending() && !confirm(
@@ -515,8 +590,24 @@ export function attachSaves({ panel, poster, importControl }) {
       return;
     }
     const got = await saves.browseForSave('folder');
-    if (!got.ok) return alert(got.error);
+    if (!got.ok) {
+      if (got.canCreate) {
+        // Not a failure: an Advance Wars save that has never held a custom
+        // map. Queue some and they go into a file made for them.
+        //
+        // Queued maps come along, because they are what somebody is trying
+        // to put somewhere. Removal marks do not: they are indices into the
+        // save that was open a moment ago, and mean nothing here.
+        creatingIn = got.folder;
+        going = new Set();
+        savePath = null;
+        entries = [];
+        return render();
+      }
+      return alert(got.error);
+    }
     if (got.cancelled || !got.saves?.length) return;
+    creatingIn = null;
 
     // Added to the list rather than replacing it, so a hand-picked save
     // sits beside the found ones and can be switched back from.
