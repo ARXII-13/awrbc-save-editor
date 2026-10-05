@@ -7,8 +7,22 @@ own.
 You do not need to know anything technical. If a step does not make sense,
 that is worth writing down: it means the tool is not explaining itself.
 
-**What you need:** a Windows PC, the `awrbc-windows.zip` you were sent, and a
-few map files (they end in `.json`) to import.
+## What you need
+
+A Windows PC, and these two links:
+
+| | |
+|---|---|
+| **The save editor** (the thing being tested) | <https://github.com/ARXII-13/awrbc-save-editor/releases> — download `awrbc-windows.zip` from the newest release |
+| **The map editor** (where maps come from) | <https://arxii-13.github.io/awrbc-custom-map-manager/> — opens in your browser, nothing to install |
+
+They are two separate tools on purpose. The map editor makes maps and runs in
+a web page; the save editor puts them into your save and runs on your PC.
+
+**Make yourself a few maps first.** Open the map editor link, draw two or
+three small maps, and use its Export button to save each one — you will get
+`.json` files. Those are what you will import in step 3. Any map will do; they
+do not have to be good.
 
 ---
 
@@ -29,8 +43,9 @@ files across yourself — so that copy is your safety net, not ours.
 
 ## 1. Opening it
 
-1. Unzip `awrbc-windows.zip` wherever you like — Downloads is fine. Avoid
-   Program Files.
+1. Download `awrbc-windows.zip` from
+   <https://github.com/ARXII-13/awrbc-save-editor/releases> and unzip it
+   wherever you like — Downloads is fine. Avoid Program Files.
 2. Open the folder and run `awrbc.exe`.
 3. Windows will warn you the publisher is unknown. Click **More info**, then
    **Run anyway**. This happens to everyone and is expected.
@@ -70,8 +85,8 @@ read, with its name and who made it underneath.
 This is the most important part. **Nothing is written to your save until you
 press Save changes.** Everything before that is you deciding.
 
-1. Press **Import map files…** and pick one or more `.json` map files. You can
-   select several at once.
+1. Press **Import map files…** and pick the `.json` maps you exported from
+   the map editor. You can select several at once.
 2. They appear at the bottom of the list with a dashed outline and a
    **will be added** label.
 3. Now press **Remove** on a map already in your save. It fades, gets a
