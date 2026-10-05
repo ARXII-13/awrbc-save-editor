@@ -1,200 +1,196 @@
-# End-to-end test
+# Trying out the save editor
 
-A pass through everything this tool does, in the order somebody would meet
-it. Written to be followed start to finish, but each part stands alone if you
-only want to re-check one.
+This walks through everything the tool does, in the order you would meet it.
+Go start to finish, or pick the part you care about — each one stands on its
+own.
 
-**Before you start.** Close Advance Wars, and close the emulator as well —
-the tool refuses to write while an emulator process is up, and it cannot tell
-a loaded game from an emulator sitting on its game list.
+You do not need to know anything technical. If a step does not make sense,
+that is worth writing down: it means the tool is not explaining itself.
 
-**What is at risk.** Every write takes a backup first, so the save you point
-it at is recoverable. The console is the exception: nothing the tool does
-reaches a Switch, so a copy you push back by hand is yours to get right. Keep
-an untouched copy of any console save before you send one back.
+**What you need:** a Windows PC, the `awrbc-windows.zip` you were sent, and a
+few map files (they end in `.json`) to import.
 
 ---
 
-## 1. It opens, and finds your saves
+## Before you start
 
-1. Unzip `awrbc-windows.zip` anywhere and run `awrbc.exe`.
-2. SmartScreen will warn — *More info* → *Run anyway*. The executable is not
-   signed, so this is expected and will happen for anyone who downloads it.
-3. A window opens, titled *Advance Wars 1+2 map tool*.
+**Close the game, and close the emulator too.** Not just the game — the whole
+emulator window. The tool will refuse to write while an emulator is open, and
+it cannot tell whether you have a game loaded or are just sitting on the menu.
 
-**Expect:** the maps in your save, each with a picture. Above them a row of
-buttons, and below it a **Save** row naming which save is open.
+**Your save is backed up automatically** before every change, so you can undo
+anything you do here.
 
-**Check:**
-- [ ] The window opens without a zip-blocked dialog. If you get one saying
-      Windows has it blocked, the app could not clear its own mark — which
-      happens in a folder it may not write to, such as Program Files. Move it
-      somewhere you own.
-- [ ] The map pictures look like the game, not letters on flat colour. Letters
-      mean the sprite pack did not load, and the header will say so.
-- [ ] The **Save** dropdown lists every profile it found. A save folder you
-      made a copy of by hand shows as `(copy)` and sorts below the live ones.
+**If you are testing with a Switch**, keep your own copy of the save folder
+somewhere safe first. The tool never touches your console directly — you copy
+files across yourself — so that copy is your safety net, not ours.
 
 ---
 
-## 2. Looking at a map
+## 1. Opening it
 
-1. Click any map's picture.
+1. Unzip `awrbc-windows.zip` wherever you like — Downloads is fine. Avoid
+   Program Files.
+2. Open the folder and run `awrbc.exe`.
+3. Windows will warn you the publisher is unknown. Click **More info**, then
+   **Run anyway**. This happens to everyone and is expected.
 
-**Expect:** the map fills the window at a readable size, with its name and
-author underneath.
+**You should see:** a window called *Advance Wars 1+2 map tool*, listing the
+maps in your save with a small picture of each.
 
-**Check:**
-- [ ] Escape closes it. So does the **Close** button, and so does clicking the
-      dark area around the map.
-- [ ] Clicking the map itself does **not** close it.
-- [ ] A very large map (40×30 or bigger) is scrollable rather than squashed.
+- [ ] The window opens.
+- [ ] The maps have proper pictures — terrain that looks like the game, not
+      letters on coloured squares.
+- [ ] The row labelled **Save** names which save you are looking at.
+- [ ] If you have more than one profile, you can pick between them there.
 
----
-
-## 3. Importing maps, and the staging model
-
-Nothing is written until you press **Save changes**. This is the part most
-worth exercising, because it is where the tool changed most recently.
-
-1. Press **Import map files…** and pick one or more `.json` maps. There are
-   six exported from a real save in
-   `scratch-testpack/for-console/` if you need some.
-2. They appear at the bottom of the list as cards with a dashed border and a
-   **will be added** badge.
-3. Press **Remove** on a map already in the save. It dims, says **will be
-   removed**, and the button becomes **Keep**.
-
-**Expect:** a bar across the top saying what is pending, with **Discard** and
-**Save changes**.
-
-**Check:**
-- [ ] Nothing has been written yet — the bar is the only thing that changed.
-- [ ] **Keep** puts a marked map back.
-- [ ] **Discard** clears everything pending and leaves the save alone.
-- [ ] **Save changes** asks first, and names what it is about to do.
-- [ ] After saving, the list reflects it and the alert names the backup.
-- [ ] Importing a map that is not playable refuses the **whole batch** and
-      says why. Nothing in that batch lands.
+**If a message says Windows has it blocked:** move the whole folder somewhere
+like your Desktop and try again. Tell us if that happens — the tool is meant
+to sort this out by itself.
 
 ---
 
-## 4. Backups
+## 2. Looking at a map properly
 
-1. Press **Back up now**. It names the snapshot it took.
+1. Click the small picture of any map.
+
+**You should see:** the map filling the window at a size you can actually
+read, with its name and who made it underneath.
+
+- [ ] Pressing **Escape** closes it.
+- [ ] The **Close** button closes it.
+- [ ] Clicking the dark area around the map closes it.
+- [ ] Clicking the map itself does *not* close it.
+- [ ] A big map is scrollable rather than squashed down to fit.
+
+---
+
+## 3. Adding and removing maps
+
+This is the most important part. **Nothing is written to your save until you
+press Save changes.** Everything before that is you deciding.
+
+1. Press **Import map files…** and pick one or more `.json` map files. You can
+   select several at once.
+2. They appear at the bottom of the list with a dashed outline and a
+   **will be added** label.
+3. Now press **Remove** on a map already in your save. It fades, gets a
+   **will be removed** label, and the button changes to **Keep**.
+
+**You should see:** a bar across the top saying what is about to happen, with
+**Discard** and **Save changes**.
+
+- [ ] Your save has not changed yet — only the screen has.
+- [ ] **Keep** undoes a removal.
+- [ ] **Discard** throws away everything pending and leaves your save alone.
+- [ ] **Save changes** asks you to confirm, and tells you what it will do.
+- [ ] Afterwards the list matches what you asked for.
+- [ ] The message afterwards names the backup it took.
+
+**Worth trying:** import a map that is broken or unplayable. The whole batch
+should be refused with a reason, and *none* of it should go in — not even the
+good maps alongside it.
+
+---
+
+## 4. Backups and undo
+
+1. Press **Back up now**. It tells you what it saved.
 2. Press **Restore…**.
 
-**Expect:** a numbered list of snapshots, newest first, with `1` pre-filled.
+**You should see:** a numbered list of backups, newest at the top, with **1**
+already filled in.
 
-**Check:**
-- [ ] `1` is the most recent backup, not the oldest.
-- [ ] Restoring asks for confirmation and says what it put back.
-- [ ] The list on screen matches the restored save afterwards.
-- [ ] If you had something staged before restoring, it is gone afterwards —
-      staged marks are positions in a list that no longer exists.
-
----
-
-## 5. A save the tool did not find
-
-This is the path for a console save, a portable install, or anything else.
-
-1. In the **Save** dropdown, choose **Choose a folder or maps file…**.
-2. Point it at a folder holding a `maps` file, or at the file itself.
-
-**Check:**
-- [ ] It opens, and joins the dropdown under **Opened by hand**.
-- [ ] You can switch back to a detected save and return to it.
-- [ ] Cancelling the dialog leaves the dropdown where it was.
-- [ ] Pointing it at a folder with no Advance Wars save in it says so clearly.
+- [ ] **1** is the most recent backup.
+- [ ] It asks you to confirm before replacing anything.
+- [ ] Afterwards, the maps on screen match what you restored.
+- [ ] Anything you had pending before restoring is gone afterwards — that is
+      deliberate, since it referred to the old list.
 
 ---
 
-## 6. A save that has never held a custom map
+## 5. Opening a save it did not find
 
-The case a new player is in. The game only creates the `maps` file once a save
-holds a custom map, so a fresh profile has none.
+If your save is somewhere unusual — a portable emulator install, or a copy you
+took off a console — you point the tool at it yourself.
 
-There is a real example to test against, copied off a console before anything
-was written to it:
-`scratch-testpack/console-backup-20261004-165639/`
+1. Open the **Save** dropdown and choose **Choose a folder or maps file…**.
+2. Pick the folder your save is in.
 
-1. Choose **Choose a folder or maps file…** and point it at that folder.
+- [ ] It opens, and appears in the dropdown under **Opened by hand**.
+- [ ] You can switch back to your normal save and then return to it.
+- [ ] Cancelling the folder picker changes nothing.
+- [ ] Pointing it somewhere with no Advance Wars save says so in plain words.
 
-**Expect:** not an error. A blue note saying the save has no maps file and
-that importing some will make one, naming the folder.
+**If you plug in a Switch over USB and try to pick it:** it should tell you
+that a Switch is not a drive and you need to copy the save to your PC first.
+That is a real limitation, not a bug.
 
-**Check:**
-- [ ] **Back up now** and **Restore…** are greyed out — there is nothing to
-      back up yet.
-- [ ] Import a few maps. They stage as usual, and the button reads
+---
+
+## 6. A save with no custom maps in it yet
+
+**This is the part we most want tested.**
+
+Advance Wars only creates its custom-map file once you have made or received
+your first map. So a fresh profile — or a console save from someone who has
+never opened the Design Room — has nothing for the tool to open.
+
+1. Choose **Choose a folder or maps file…** and point it at such a save.
+
+**You should see:** not an error. A blue note saying the save has no map file
+yet, and that importing some will create one.
+
+- [ ] **Back up now** and **Restore…** are greyed out — there is nothing there
+      to back up.
+- [ ] Import a few maps. They queue up as before, and the button now reads
       **Create maps file**.
-- [ ] Pressing it asks first, naming the folder.
-- [ ] Afterwards the save opens normally and the maps are in it.
+- [ ] It asks you to confirm, and names the folder it will write into.
+- [ ] Afterwards the save opens normally with your maps in it.
 - [ ] You can then add another map to it the ordinary way.
 
 ---
 
-## 7. The guard against writing under a running game
+## 7. It should refuse while the emulator is open
 
-1. Start your emulator — you do not need to load the game.
+1. Start your emulator. You do not need to load the game.
 2. Try to save any change.
 
-**Check:**
 - [ ] It refuses, and says an emulator is running.
-- [ ] Closing the emulator lets the same write through.
+- [ ] Close the emulator, try the same thing, and it works.
 
-This is a net, not a guarantee: it matches the emulator process, so it cannot
-tell a loaded game from an emulator sitting idle, and it allows the write if
-it cannot read the process list at all. Closing the game is still the actual
-instruction.
+This is a safety net rather than a guarantee: a running game writes its own
+copy of your save over anything put underneath it, which is how you lose work.
+Closing the game is still the real answer.
 
 ---
 
-## 8. On real hardware
+## 8. The whole loop, with a Switch
 
-Only if you want the full loop. Nothing in the tool talks to a Switch — a
-Switch over USB is a portable device, not a drive, so files on it cannot be
-opened directly.
+Only if you have a modded console and want to test the full journey.
 
-1. Copy the game's save folder off the console to your PC.
-2. **Keep an untouched copy of it**, separately.
-3. Point the tool at the working copy and import maps as above.
+1. Copy the game's save folder from the console to your PC.
+2. **Make a second copy and put it somewhere safe.**
+3. Point the tool at the first copy and add maps as above.
 4. Copy the folder back to the console.
 5. Open the game and look in the Design Room.
 
-**Check:**
-- [ ] The maps are there, with their names and authors.
-- [ ] Maps with predeployed units have them, in the right places.
-- [ ] The maps are playable.
-
----
-
-## The command line
-
-Everything above has a terminal equivalent, which is also the quickest way to
-check what a save holds without opening anything:
-
-```
-awrbc doctor                     what it found, and whether it can read it
-awrbc list                       the maps in the save
-awrbc export <n> --out map.json  write one out
-awrbc import map.json            add one
-awrbc remove <n>                 delete one
-awrbc backup                     take a snapshot
-awrbc restore [name]             list snapshots, or roll one back
-```
-
-Add `--save-dir <path>` to point any of them somewhere specific, and `--json`
-for machine-readable output.
+- [ ] The maps are there, with the right names.
+- [ ] Maps that came with units have them, in the right places.
+- [ ] They play properly.
 
 ---
 
 ## If something goes wrong
 
-Backups live outside the save, and `awrbc restore` lists them. The alert after
-every write names the backup it took first, so the thing to write down is that
-name.
+**Your save is recoverable.** Every change takes a backup first, and
+**Restore…** lists them. The message after each change names the backup it
+made, so that is the thing worth noting down.
 
-A map that renders as letters on flat colour is a missing sprite pack, not a
-broken map. River and shoal have no art yet and draw as flat colour by design.
+**Maps drawn as letters on flat colour** means the artwork did not load, not
+that the map is broken. River and shoal have no artwork yet and show as flat
+colour on purpose.
+
+**When reporting anything**, the useful things to say are: what you clicked,
+what you expected, and what happened instead. A screenshot of the window is
+worth more than a description.

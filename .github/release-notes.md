@@ -22,8 +22,8 @@ If it cannot — a folder it may not write to, such as Program Files — it says
 so and gives the command that fixes it. Putting it somewhere you own avoids
 the question.
 
-**There is a test plan** in `TESTING.md` in the repository, if you want to
-work through everything this does rather than poke at it.
+**There is a walkthrough** in `TESTING.md` if you would rather be shown
+round than poke at it. It assumes nothing technical.
 
 ## What works
 
