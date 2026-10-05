@@ -60,6 +60,23 @@ export function attachSaves({ panel, poster, importControl }) {
   const pending = () => going.size + queued.length;
   function clearStaged() { going = new Set(); queued = []; }
 
+  /**
+   * Open a different save, forgetting everything about the last one.
+   *
+   * Every caller that changes which save is open goes through here. They
+   * did not, and one of them forgot `creatingIn`: switching saves while a
+   * folder was waiting for its maps file left the panel showing the old
+   * folder's banner, hiding the opened save's maps, and - the part that
+   * mattered - writing the new file into the folder you had navigated away
+   * from.
+   */
+  function switchTo(path) {
+    clearStaged();
+    creatingIn = null;
+    savePath = path;
+    return open(path);
+  }
+
   const el = (tag, props = {}, ...kids) => {
     const node = Object.assign(document.createElement(tag), props);
     for (const k of kids) node.append(k);
@@ -113,13 +130,6 @@ export function attachSaves({ panel, poster, importControl }) {
     return found.find((s) => s.path === savePath);
   }
 
-  /**
-   * One button per save, when there is a choice to make.
-   *
-   * Two profiles in one emulator, or two emulators side by side, both end up
-   * here. Hidden entirely for the ordinary case of a single save, because a
-   * row of one button is a decision nobody has.
-   */
   /**
    * Where the maps you are looking at came from.
    *
@@ -183,9 +193,7 @@ export function attachSaves({ panel, poster, importControl }) {
         pick.value = savePath;        // put the list back where it was
         return;
       }
-      clearStaged();
-      savePath = chosen;
-      open(chosen);
+      switchTo(chosen);
     };
 
     return el('div', { className: 'saverow' },
@@ -616,9 +624,7 @@ export function attachSaves({ panel, poster, importControl }) {
         found.push({ ...save, byHand: true });
       }
     }
-    clearStaged();
-    savePath = got.saves[0].path;
-    await open(savePath);
+    await switchTo(got.saves[0].path);
   }
 
   async function backupNow() {
@@ -632,8 +638,9 @@ export function attachSaves({ panel, poster, importControl }) {
    *
    * A numbered list and a prompt rather than a dialog, because this panel is
    * a toolbar column and the framework rebuild (decision #47) is where a real
-   * one belongs. The names carry a timestamp, so they sort newest-last and
-   * reading them is the whole of the choice.
+   * one belongs. backup.snapshots() answers newest first, so 1 is the most
+   * recent - which is what the prompt offers, because Enter on a dialog that
+   * replaces your save should not reach for the oldest copy you have.
    */
   async function restorePrompt() {
     const got = await saves.snapshots(savePath);
@@ -649,7 +656,7 @@ export function attachSaves({ panel, poster, importControl }) {
     const answer = prompt(
       'Restore which backup?\n\n' + list +
       '\n\nType its number. The save as it is now is kept as a backup too, ' +
-      'so this is itself undoable.', String(got.snapshots.length));
+      'so this is itself undoable.', '1');
     if (answer === null) return;
 
     const pick = got.snapshots[Number(answer) - 1];
@@ -663,6 +670,10 @@ export function attachSaves({ panel, poster, importControl }) {
       alert(done.error);
       return open(savePath);
     }
+    // Staged marks are positions in the list that was on screen a moment
+    // ago. The restored save has different maps at those positions, so
+    // keeping them would remove whichever map now happens to sit there.
+    clearStaged();
     await open(savePath);
     alert(`Restored ${done.restored}.`);
   }
@@ -681,6 +692,5 @@ export function attachSaves({ panel, poster, importControl }) {
 export async function attachIfDesktop(options) {
   if (!await saves.ready()) return null;
   options.panel.hidden = false;
-  if (options.heading) options.heading.hidden = false;
   return attachSaves(options);
 }

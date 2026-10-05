@@ -336,21 +336,6 @@ def _read_submission(path):
         return json.load(fh), None
 
 
-def _write_warnings(out, report):
-    for f in report.warnings:
-        out.write("  warning %-18s %s\n" % (f.code, f.message))
-
-
-def _facts(entry):
-    v = entry.get("versions", [{}])[-1]
-    bits = ["%dp" % v.get("players", 0),
-            "%dx%d" % (v.get("cols", 0), v.get("rows", 0))]
-    bits += [k for k in ("predeployed", "navy", "structures", "fog")
-             if v.get(k)]
-    bits += list(v.get("tags", []))
-    return bits
-
-
 def cmd_remove(args, out):
     chosen, _ = _resolve(args)
     if _game_running() and not args.force:

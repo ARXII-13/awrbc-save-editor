@@ -59,18 +59,31 @@ false in a browser and the save panel never appears.
 That is a structural boundary rather than a promise: the browser version
 *cannot* read your save, as opposed to being asked not to.
 
-## Two things that are not style
+## Three things that are not style
 
 **Failures cross the bridge as data.** pywebview turns a Python exception into
 an unhelpful rejection in the page, so every method answers
 `{"ok": false, "error": ...}` instead. The UI gets something it can show a
 person rather than a promise that rejected for reasons nobody can see.
 
-**Writes refuse while the game is running.** A loaded title flushes its own
+**Writes refuse while an emulator is running.** A loaded title flushes its own
 copy of the save over anything written underneath it, so this is data loss
-rather than an inconvenience. The check answers "not running" when it cannot
-tell, which is a deliberate fail-open: refusing to work because `ps` is missing
-would be worse than the risk.
+rather than an inconvenience. The check reads the process list for an
+emulator, which means it cannot tell a loaded game from an emulator sitting on
+its game list and declines for both. It also answers "not running" when it
+cannot tell at all - a deliberate fail-open, because refusing to work when
+`ps` is missing would be worse than the risk. Both of those make it a net
+rather than a guarantee, which is why the panel asks people to close the game
+instead of advertising this.
+
+**Changes are staged, then written once.** `apply_changes` is the only path
+that modifies a save; `import_map` and `remove_map` are it with a list of one.
+Removals go back to front, because each one shifts the indices after it, and
+nothing is written unless every addition validates - a half-applied batch
+would report success with no way to tell which half landed. `create_save`
+makes the file for a save that has never held a custom map, with the maps
+already in it, because an empty document carries only the root class
+definitions.
 
 ## Previews
 
@@ -100,9 +113,12 @@ assembly from the Internet zone. pywebview reaches WebView2 through pythonnet,
 so the app fell over on a mark nobody can see — and the one person who hit it
 was sent to install a runtime they already had.
 
-`why_no_window` looks for that mark before blaming anything, and prints the
-`Unblock-File` command that fixes it. A confident wrong answer is the one
-people act on.
+`unblock_self` now clears that mark from the bundle's own files before
+anything can reach .NET, so the usual case needs no one to do anything.
+`why_no_window` still looks for the mark before blaming anything, because
+clearing it can fail - a folder the app may not write to, such as Program
+Files - and then the `Unblock-File` command is the answer. A confident wrong
+answer is the one people act on.
 
 ## Packaging
 

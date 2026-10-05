@@ -60,10 +60,6 @@ LIBRARY_ID = 2
 #: NRBF primitive type code for Int32.
 INT32 = 8
 
-#: The game allocates in powers of two and never smaller than this.
-MIN_FILE_SIZE = 16384
-
-
 def load_table(path=TABLE):
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)

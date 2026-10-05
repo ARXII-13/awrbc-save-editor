@@ -388,6 +388,40 @@ class MakingTheMapsFile(ApiCase):
         self.assertFalse(got["ok"])
         self.assertFalse(os.path.exists(self.where))
 
+    def test_a_failure_leaves_no_file_behind(self):
+        """It used to open the real path for writing first, so anything that
+        went wrong inside the builder left a truncated maps file in a real
+        save folder - and the "already exists" guard then refused to replace
+        it for ever. One bad run made the feature permanently unusable for
+        that save."""
+        from unittest import mock
+        from awrbc.core import create as create_mod
+
+        with mock.patch.object(create_mod, "build_document",
+                               side_effect=RuntimeError("boom")):
+            got = self.api.create_save(self.folder,
+                                       [{"document": self.document()}])
+        self.assertFalse(got["ok"])
+        self.assertFalse(os.path.exists(self.where),
+                         "a half-written maps file was left in the save")
+        self.assertEqual(
+            [n for n in os.listdir(self.folder) if "awrbc-tmp" in n], [],
+            "the scratch file was left behind")
+
+    def test_it_can_be_retried_after_a_failure(self):
+        """The point of the above: one bad run must not strand the save."""
+        from unittest import mock
+        from awrbc.core import create as create_mod
+
+        with mock.patch.object(create_mod, "build_document",
+                               side_effect=RuntimeError("boom")):
+            self.api.create_save(self.folder, [{"document": self.document()}])
+
+        again = self.api.create_save(self.folder,
+                                     [{"document": self.document("Second")}])
+        self.assertTrue(again["ok"], again)
+        self.assertEqual(again["created"], ["Second"])
+
     def test_a_folder_that_is_not_one_is_refused(self):
         got = self.api.create_save(os.path.join(self.tmp, "nowhere"),
                                    [{"document": self.document()}])

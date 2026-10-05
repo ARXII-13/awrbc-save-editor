@@ -212,12 +212,29 @@ class SaveApi:
                 m.name = name
             prepared.append(m)
 
-        with open(where, "wb") as fh:
-            fh.write(create.build_document(prepared))
-
-        # Read back before claiming anything. A file this cannot produce
-        # correctly should fail here rather than on a console.
-        doc = savefile.read(where)
+        # Built in memory, then moved into place - the same shape as
+        # savefile.write, and for the same reason. Opening the real path for
+        # writing first means any failure inside build_document leaves a
+        # truncated maps file in somebody's save folder, which the "already
+        # exists" guard above would then refuse to replace for ever.
+        data = create.build_document(prepared)
+        tmp = where + ".awrbc-tmp"
+        try:
+            with open(tmp, "wb") as fh:
+                fh.write(data)
+            # Read it back before it becomes the save's maps file. A document
+            # this cannot produce correctly should fail here, next to a
+            # temporary file, rather than on a console.
+            doc = savefile.read(tmp)
+            os.replace(tmp, where)
+        except Exception:
+            # Never leave the scratch file behind to be found later.
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
+        doc.path = where
         return {"ok": True, "path": where,
                 "created": [m.name for m in doc.maps]}
 

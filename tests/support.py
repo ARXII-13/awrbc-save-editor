@@ -9,7 +9,6 @@ it is the only validator worth gating on.
 import os
 import shutil
 import subprocess
-import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BFCHECK = os.path.join(REPO, "tools", "bfcheck.ps1")

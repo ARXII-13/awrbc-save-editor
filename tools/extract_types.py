@@ -1,11 +1,13 @@
 """Extract the game's class definitions from a save into a type table.
 
-    python tools/extract_types.py <maps-file> tests/fixtures/typetable.json
+    python tools/extract_types.py <maps-file> awrbc/core/typetable.json
 
 The output holds **schema only** — class names, member names and member types.
 No map content, no creator names, no save data. It is the same information
-already written out in prose in docs/format.md, in a form the fixture builder
-can use, which is what lets the test suite run without anyone's real save.
+the same information the format notes describe in prose, in the form
+`awrbc/core/create.py` reads - which is what lets the suite run without
+anyone's real save, and what lets the tool make a maps file for a save that
+has none.
 """
 import json
 import os

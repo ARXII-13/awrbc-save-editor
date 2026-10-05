@@ -254,7 +254,7 @@ def main(argv=None, box=None):
         import webview
     except ImportError:
         report("the desktop app needs pywebview:\n"
-               "    pip install \"awrbc-custom-map-manager[desktop]\"\n", box)
+               "    pip install \"awrbc-save-editor[desktop]\"\n", box)
         return 1
 
     try:

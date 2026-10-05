@@ -24,7 +24,7 @@ INFANTRY, TANK, LANDER = 9, 17, 10
 
 
 def a_map(name="Fixture", cols=8, rows=6, units=None, offsets=None,
-          creator="somebody", fog=False):
+          creator="somebody", fog=False, flags=None, water_color=0):
     tiles = [[Tile(type=1) for _ in range(rows)] for _ in range(cols)]
     tiles[0][0] = Tile(type=HQ, team=0, capture_points=20)
     tiles[1][0] = Tile(type=BASE, team=0, capture_points=20)
@@ -37,8 +37,11 @@ def a_map(name="Fixture", cols=8, rows=6, units=None, offsets=None,
     for (x, y), unit in (units or {}).items():
         grid[x][y] = unit
 
+    for (x, y), value in (flags or {}).items():
+        tiles[x][y] = Tile(type=tiles[x][y].type, flags=value)
+
     return Map(name=name, creator=creator, cols=cols, rows=rows, fog=fog,
-               tiles=tiles, units=grid)
+               water_color=water_color, tiles=tiles, units=grid)
 
 
 def through_a_created_file(maps):
@@ -71,7 +74,7 @@ class TheFileItMakes(unittest.TestCase):
 
     def test_it_is_at_least_the_size_the_game_allocates(self):
         _doc, size = through_a_created_file([a_map()])
-        self.assertGreaterEqual(size, create.MIN_FILE_SIZE)
+        self.assertGreaterEqual(size, savefile.MIN_FILE_SIZE)
 
     def test_it_is_a_power_of_two_like_every_save_the_game_writes(self):
         """16 KiB doubling until it fits. A big document was being left at
@@ -80,7 +83,7 @@ class TheFileItMakes(unittest.TestCase):
             _doc, size = through_a_created_file(maps)
             self.assertEqual(size & (size - 1), 0,
                              "%d is not a power of two" % size)
-            self.assertGreaterEqual(size, create.MIN_FILE_SIZE)
+            self.assertGreaterEqual(size, savefile.MIN_FILE_SIZE)
 
     def test_it_holds_several_maps_in_order(self):
         doc, _ = through_a_created_file(
@@ -258,6 +261,86 @@ class TheMembersWeDoNotModel(unittest.TestCase):
         got = self.unit_record()
         self.assertEqual(got["flashing"], False)
         self.assertEqual(got["deployedThisTurn"], False)
+
+
+class TheFieldsTheHashCannotSee(unittest.TestCase):
+    """`unchanged()` compares content hashes, and `identity.HASHED_FIELDS`
+    deliberately leaves out tile flags - two maps that differ only in how
+    their roads connect are the same map for de-duplication.
+
+    Which means every test in the class above is blind to flags, and flags
+    are what the game reads to choose a sprite. Worse, the fixture used to
+    build every tile with the default `flags=0`, so even a direct comparison
+    would have been satisfied by a writer that wrote zero: the fixture
+    agreed with the broken answer.
+
+    These assert the fields directly, with values that are not the default.
+    """
+
+    def tiles_of(self, m):
+        return [m.tiles[x][y] for x in range(m.cols) for y in range(m.rows)]
+
+    def test_tile_flags_survive(self):
+        """A map whose flags were dropped renders as disconnected rubble on
+        a console and passes every hash comparison on the way there."""
+        marks = {(1, 1): 0x1E, (2, 1): 0x0A, (3, 2): 0x1F000}
+        before = a_map(flags=marks)
+        doc, _ = through_a_created_file([before])
+        after = doc.maps[0]
+        for (x, y), value in marks.items():
+            self.assertEqual(after.tiles[x][y].flags, value,
+                             "flags lost at (%d,%d)" % (x, y))
+
+    def test_every_flag_bit_makes_the_round_trip(self):
+        """Not just the ones a fixture happens to use."""
+        before = a_map(cols=8, rows=6,
+                       flags={(0, 1): 0xFFFF, (1, 1): 0x1FFFF})
+        doc, _ = through_a_created_file([before])
+        after = doc.maps[0]
+        self.assertEqual(after.tiles[0][1].flags, 0xFFFF)
+        self.assertEqual(after.tiles[1][1].flags, 0x1FFFF)
+
+    def test_the_water_colour_survives(self):
+        """Hashed, but the fixture never had a non-zero one."""
+        before = a_map(water_color=3)
+        doc, _ = through_a_created_file([before])
+        self.assertEqual(doc.maps[0].water_color, 3)
+
+    def test_a_launched_silo_stays_launched(self):
+        before = a_map()
+        before.tiles[2][2] = Tile(type=1, has_launched=True)
+        doc, _ = through_a_created_file([before])
+        self.assertTrue(doc.maps[2 - 2].tiles[2][2].has_launched)
+
+    def test_a_units_own_flags_survive(self):
+        """`moved_this_turn` and `is_diving` were named in an assertion and
+        then left out of the tuple it checked."""
+        before = a_map(units={(1, 1): Unit(
+            type=LANDER, team=0, moved_this_turn=True, is_diving=True,
+            is_capturing=True, is_predeployed=True)})
+        doc, _ = through_a_created_file([before])
+        u = doc.maps[0].units[1][1]
+        self.assertEqual(
+            (u.moved_this_turn, u.is_diving, u.is_capturing, u.is_predeployed),
+            (True, True, True, True))
+
+    def test_flags_survive_a_later_add_too(self):
+        """add_map models its records on the created file, so the created
+        file has to have got them right first."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "maps")
+            with open(path, "wb") as fh:
+                fh.write(create.build_document(
+                    [a_map(name="First", flags={(1, 1): 0x1E})]))
+            doc = savefile.read(path)
+            savefile.add_map(doc, a_map(name="Second", flags={(2, 2): 0x0A}))
+            savefile.write(doc, path)
+
+            again = savefile.read(path)
+            self.assertEqual(again.maps[0].tiles[1][1].flags, 0x1E)
+            self.assertEqual(again.maps[1].tiles[2][2].flags, 0x0A)
 
 
 if __name__ == "__main__":

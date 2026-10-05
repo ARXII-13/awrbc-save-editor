@@ -14,10 +14,12 @@ Download the Windows zip from
 [Releases](https://github.com/ARXII-13/awrbc-save-editor/releases), unzip, run
 `awrbc.exe`.
 
-**Unblock the zip before extracting** — right-click → Properties → tick
-Unblock. Windows marks files from a downloaded zip as internet-sourced, and
-.NET refuses to load an assembly marked that way, which stops the window
-opening. The app says so if it happens, with the command that fixes it.
+Windows marks files from a downloaded zip as internet-sourced, and .NET
+refuses to load an assembly marked that way — which would stop the window
+opening. The app clears that mark from its own files at startup, so there is
+nothing to do. If it cannot (a folder it may not write to, such as Program
+Files), it says so and gives the command that fixes it. SmartScreen will still
+ask once, because the executable is not signed.
 
 From a checkout instead:
 
@@ -40,14 +42,18 @@ awrbc backup                      snapshot the save
 awrbc restore [name]              list snapshots, or roll one back
 ```
 
-Every write takes a backup first, and refuses while the game is running — a
-loaded title flushes its own copy of the save over anything put underneath it,
-so that is data loss rather than an inconvenience.
+Every write takes a backup first. Close the game before writing: a loaded
+title flushes its own copy of the save over anything put underneath it, so
+that is data loss rather than an inconvenience. The tool also refuses while an
+emulator is running, though it cannot tell a loaded game from an emulator
+sitting on its game list and declines for both — a net under the instruction,
+not a substitute for it.
 
 ## Where maps come from
 
-Not from here. This tool imports a map someone already made: a `.json`, or an
-Export bundle `.zip`. Making maps, and sharing them, is a separate tool in a
+Not from here. This tool imports a map someone already made, as a `.json`.
+(The command line also reads an Export bundle `.zip`; the app does not yet.)
+Making maps, and sharing them, is a separate tool in a
 separate repository — which is the point. A tool that edits your own save file
 and a public archive of maps are different things with different risks, and
 nothing in this repository knows the archive exists.
@@ -55,10 +61,19 @@ nothing in this repository knows the archive exists.
 What the two share is the renderer, because a save manager has to show which
 map is which, and drawing a map is drawing a map.
 
+A note for anyone reading the source: comments throughout cite
+`docs/format.md`, `docs/id-tables.md`, `docs/decisions.md` and numbered
+decisions from them. **Those files are not in this repository, and are not in
+the map manager's either** - its `docs/` directory is empty and has never been
+committed. The citations are real in the sense that the decisions were made
+and the format was worked out; the documents recording them were not kept.
+Nothing in the code depends on them, but do not go looking.
+
 ## What is in here
 
 ```
-awrbc/core/      the save format: MS-NRBF codec, schema, validation, backups
+awrbc/core/      the save format: MS-NRBF codec, schema, validation, backups,
+                 and making a maps file for a save that has never held one
 awrbc/cli/       the terminal interface
 awrbc/desktop/   the app, and the bridge it exposes to its page
 web/             the page it loads, and the renderer that draws maps

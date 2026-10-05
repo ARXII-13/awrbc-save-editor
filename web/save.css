@@ -272,7 +272,7 @@ button.danger:hover { background: #3a2529; border-color: #6b4046; }
   color: var(--ink);
 }
 
-.slot { color: var(--dimmer); font-variant-numeric: tabular-nums; }
+
 
 /* --- the map, full size ------------------------------------------------ */
 

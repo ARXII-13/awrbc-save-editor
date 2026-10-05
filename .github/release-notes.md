@@ -26,22 +26,27 @@ The app detects this and says so, with that command in the message.
 
 ## What works
 
-- **Desktop app** — unzip, run `awrbc.exe`. Lists the maps in your Ryujinx
-  save with a picture of each, imports a map from a `.json`, removes one,
-  takes backups and restores them.
+- **Desktop app** — unzip, run `awrbc.exe`. Finds the maps in your save with
+  a picture of each, and imports, removes, backs up and restores. It looks
+  where the common emulators keep their saves, and you can point it at a
+  folder yourself - which is the answer for a save copied off a console.
+  A save that has never held a custom map has no maps file at all; it can
+  make one.
 - **Command line** — `pip install .` gives `awrbc`: `doctor`, `list`,
   `export`, `import`, `remove`, `backup`, `restore`.
 
-Every write takes a backup first and refuses while the game is running,
-because a loaded title writes its own copy of the save over anything put
-underneath it.
+Changes are staged and written in one go, with a backup taken first. Close
+the game before writing: it keeps its own copy of the save while it runs and
+puts that back over yours. The tool also refuses while an emulator is up - it
+cannot tell a loaded game from an emulator sitting on its game list, so it
+declines for both.
 
 ## What does not work yet
 
 - **macOS and Linux have no packaged build.** `pip install ".[desktop]"` and
   `python -m awrbc.desktop` work on both.
-- **Sea, river and shoal** draw as a letter on flat colour — no sprites for
-  them yet. Every other terrain has art.
+- **River and shoal** draw as flat colour — no sprites for them yet. Every
+  other terrain has art, sea included.
 - **Bundle `.zip` import** is not wired up; open the zip and import the
   `map.json` inside it.
 

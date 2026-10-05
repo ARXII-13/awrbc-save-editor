@@ -17,7 +17,8 @@
   show which map is which, and drawing a map is drawing a map.
 
   Maps come from somewhere else - the hosted editor, a friend, the archive -
-  as a .json or an Export bundle .zip, and get imported from a file here.
+  and get imported from a file here. A .json is the map; a bundle .zip is
+  not read here yet, which `chosen()` below says so plainly.
 -->
 <link rel="stylesheet" href="save.css">
 </head>
@@ -48,7 +49,7 @@
     Import map files…
     <!-- More than one, because clearing out a save and refilling it is one
          job, not six. They queue up and go in together. -->
-    <input id="mapfile" type="file" accept=".json,.zip" multiple hidden>
+    <input id="mapfile" type="file" accept=".json" multiple hidden>
   </label>
 
   <div id="savepanel"></div>

@@ -1059,3 +1059,142 @@ describe('a save with no maps file in it', () => {
               p.alerts.join(' | '));
   });
 });
+
+describe('state that must not outlive the save it belonged to', () => {
+  const doc = (name) => ({ name, size: { cols: 8, rows: 8 } });
+
+  const twoSaves = {
+    find_saves: async () => ({ ok: true, saves: [
+      { path: 'C:/ryu/A/maps', label: 'Ryujinx profile 0' },
+      { path: 'C:/ryu/B/maps', label: 'Ryujinx profile 1' },
+    ] }),
+    open_save: async () => ({ ok: true, maps: [
+      { index: 0, name: 'Existing', playable: true, derived: { players: 2 },
+        document: { size: { cols: 8, rows: 8 } } }] }),
+    browse_for_save: async () => ({
+      ok: false, kind: 'NoMapsYet', canCreate: true,
+      folder: 'D:/switch/OTHER', error: 'no maps file' }),
+  };
+
+  const picker = (p) => byClass(p.panel, 'savepick')[0];
+
+  const browse = async (p) => {
+    const list = picker(p);
+    list.value = '__browse__';
+    list.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  const choose = async (p, path) => {
+    const list = picker(p);
+    list.value = path;
+    list.onchange();
+    await new Promise((r) => setTimeout(r, 0));
+  };
+
+  it('stops creating when you switch to a real save', async () => {
+    // It did not, and the panel kept showing the banner for a folder you
+    // had navigated away from while hiding the maps of the save you opened.
+    const p = panelOver(twoSaves);
+    await p.api.refresh();
+    await browse(p);
+    assert.equal(byClass(p.panel, 'making').length, 1, 'set up wrong');
+
+    await choose(p, 'C:/ryu/B/maps');
+    assert.equal(byClass(p.panel, 'making').length, 0,
+                 'it is still offering to create a file somewhere else');
+  });
+
+  it('shows the opened save instead of an empty create list', async () => {
+    const p = panelOver(twoSaves);
+    await p.api.refresh();
+    await browse(p);
+    await choose(p, 'C:/ryu/B/maps');
+    assert.equal(byClass(p.panel, 'mapcard').length, 1,
+                 'the save it opened has a map and should show it');
+  });
+
+  it('writes to the save you switched to, not the folder you left', async () => {
+    // The one that matters: it called create_save with the old folder while
+    // the picker said a different save was open.
+    const calls = [];
+    const p = panelOver({
+      ...twoSaves,
+      create_save: async (folder) => {
+        calls.push(['create', folder]);
+        return { ok: true, path: folder + '/maps', created: ['One'] };
+      },
+      apply_changes: async (path) => {
+        calls.push(['apply', path]);
+        return { ok: true, added: ['1'], removed: [], backup: 'b' };
+      },
+    });
+    await p.api.refresh();
+    await browse(p);
+    await choose(p, 'C:/ryu/B/maps');
+    p.api.queue([doc('One')]);
+    await p.api.commit();
+
+    assert.deepEqual(calls, [['apply', 'C:/ryu/B/maps']],
+                     JSON.stringify(calls));
+  });
+
+  it('forgets removal marks when a backup is restored', async () => {
+    // `going` holds positions in the list that was on screen. A restored
+    // save has different maps at those positions.
+    let removes = null;
+    const p = panelOver({
+      find_saves: async () => ({ ok: true, saves: [
+        { path: 'C:/ryu/A/maps', label: 'Ryujinx profile 0' }] }),
+      open_save: async () => ({ ok: true, maps: [
+        { index: 0, name: 'One', playable: true, derived: { players: 2 },
+          document: { size: { cols: 8, rows: 8 } } },
+        { index: 1, name: 'Two', playable: true, derived: { players: 2 },
+          document: { size: { cols: 8, rows: 8 } } }] }),
+      snapshots: async () => ({ ok: true, snapshots: [
+        { name: 'maps-2026-10-04', taken: '2026-10-04' },
+        { name: 'maps-2026-10-01', taken: '2026-10-01' }] }),
+      restore: async () => ({ ok: true, restored: 'maps-2026-10-04' }),
+      apply_changes: async (path, r) => {
+        removes = r;
+        return { ok: true, added: [], removed: [], backup: 'b' };
+      },
+    }, { prompts: ['1'] });
+
+    await p.api.refresh();
+    buttons(p.panel).find((b) => b.textContent === 'Remove').onclick();
+    assert.equal(byClass(p.panel, 'commitbar').length, 1, 'set up wrong');
+
+    byText(p.panel, 'Restore…').onclick();
+    await new Promise((r) => setTimeout(r, 0));
+
+    assert.equal(byClass(p.panel, 'commitbar').length, 0,
+                 'the marks survived a restore');
+    await p.api.commit();
+    assert.equal(removes, null, 'it went on to remove a map anyway');
+  });
+
+  it('offers the newest backup, not the oldest', async () => {
+    // snapshots() answers newest first. The prompt used to pre-fill the
+    // last number in the list, so Enter restored the oldest copy you had.
+    let asked = null;
+    const p = panelOver({
+      find_saves: async () => ({ ok: true, saves: [
+        { path: 'C:/ryu/A/maps', label: 'Ryujinx profile 0' }] }),
+      snapshots: async () => ({ ok: true, snapshots: [
+        { name: 'maps-NEWEST', taken: '2026-10-04' },
+        { name: 'maps-middle', taken: '2026-10-02' },
+        { name: 'maps-OLDEST', taken: '2026-10-01' }] }),
+      restore: async () => ({ ok: true, restored: 'x' }),
+    }, { prompts: [null] });
+
+    const realPrompt = globalThis.prompt;
+    globalThis.prompt = (message, preset) => { asked = preset; return null; };
+    await p.api.refresh();
+    byText(p.panel, 'Restore…').onclick();
+    await new Promise((r) => setTimeout(r, 0));
+    globalThis.prompt = realPrompt;
+
+    assert.equal(asked, '1', 'the default should be the newest backup');
+  });
+});
