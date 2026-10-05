@@ -9,20 +9,21 @@ It does not make maps and does not talk to any map archive — those are a
 separate tool in a separate repository. This one reads and writes a file that
 is already on your machine.
 
-## Unblock the zip before extracting
+## Running it
 
-Right-click `awrbc-windows.zip` → Properties → tick **Unblock** → OK, *then*
-extract.
+Unzip anywhere and run `awrbc.exe`. SmartScreen will warn that the publisher
+is unknown — *More info* → *Run anyway*. The executable is not signed, so
+everyone sees this.
 
-Windows marks everything extracted from a downloaded zip as coming from the
-internet, and .NET refuses to load an assembly marked that way — which stops
-the window opening. Already extracted? This fixes it:
+Windows also marks everything extracted from a downloaded zip as coming from
+the internet, and .NET refuses to load an assembly marked that way. The app
+clears that mark from its own files at startup, so there is nothing to do.
+If it cannot — a folder it may not write to, such as Program Files — it says
+so and gives the command that fixes it. Putting it somewhere you own avoids
+the question.
 
-```powershell
-Get-ChildItem -Recurse 'path\to\awrbc' | Unblock-File
-```
-
-The app detects this and says so, with that command in the message.
+**There is a test plan** in `TESTING.md` in the repository, if you want to
+work through everything this does rather than poke at it.
 
 ## What works
 
@@ -40,6 +41,21 @@ the game before writing: it keeps its own copy of the save while it runs and
 puts that back over yours. The tool also refuses while an emulator is up - it
 cannot tell a loaded game from an emulator sitting on its game list, so it
 declines for both.
+
+## New since rc.3
+
+- **A save that has never held a custom map can be used.** The game only
+  creates its maps file once there is a map to put in it, so a fresh profile
+  has none at all. The tool makes the file now, with your maps in it. Verified
+  on a real Switch.
+- **Changes are staged and written once.** Mark maps to remove, queue several
+  to import, then save in one go — one read, one backup, one write, instead of
+  one of each per map.
+- **Point it at any save.** It knows where Ryujinx, Ryubing, yuzu, Suyu,
+  Sudachi, Citron, Eden and Torzu keep theirs, and you can browse to a folder
+  yourself — which is the answer for a save copied off a console.
+- **Click a map to see it full size.**
+- Writes refuse while an emulator is running, not only Ryujinx.
 
 ## What does not work yet
 
